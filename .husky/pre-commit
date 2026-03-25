@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# 在 pre-commit 文件中配置一些脚本命令了，让这些脚本命令在 git commit 之前执行
+# 团队可以在项目中强制执行代码质量检查、自动化任务、或其他开发流程，确保代码库的稳定性和一致性
+. "$(dirname "$0")/_/husky.sh"
+# lint-staged用于优化代码检查和格式化的工具，通常与 Git 钩子工具（如 Husky）结合使用。
+# 它的主要作用是在提交代码时，只对 Git 暂存区（staged）的文件进行检查和格式化，而不是对整个代码库运行这些操作，从而提高了代码检查和修复的效率
+# pnpm exec 用于在当前项目的环境中运行本地安装的可执行文件。它的作用类似于 npm run 或 yarn run 中的 npx，但专门用于 pnpm 的工作流 。
+pnpm exec lint-staged

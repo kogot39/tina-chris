@@ -1,20 +1,60 @@
 {
   "name": "tina-chris",
+  "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev",
-    "lint": "turbo run lint",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "build:desktop": "pnpm -rF @tina-chris/tina-desktop-app run build",
+    "dev:desktop": "pnpm -rF @tina-chris/tina-desktop-app run dev",
+    "check-types:desktop": "pnpm -rF @tina-chris/tina-desktop-app run typecheck",
+    "check-types:2d": "pnpm -rF @tina-chris/live2d-model run typecheck",
+    "dev:ui": "pnpm -rF @tina-chris/tina-ui run dev",
+    "check-types:ui": "pnpm -rF @tina-chris/tina-ui run typecheck",
+    "check-types": "pnpm run \"/^check-types:/\"",
+    "lint": "eslint . --ext .vue,.js,.ts,.jsx,.tsx,.md,.json --max-warnings 0 --cache --concurrency=auto",
+    "lint:fix": "pnpm run lint --fix",
+    "lint:commit": "commitlint",
+    "prepare": "husky install",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types"
+    "commit": "git-cz"
   },
   "devDependencies": {
-    "prettier": "^3.7.4",
-    "turbo": "^2.8.20",
-    "typescript": "5.9.2"
+    "@commitlint/cli": "^20.4.2",
+    "@commitlint/config-conventional": "^20.4.2",
+    "@commitlint/cz-commitlint": "^20.5.0",
+    "@tina-chris/eslint-config": "workspace:^",
+    "@vitejs/plugin-vue": "catalog:",
+    "@vitejs/plugin-vue-jsx": "catalog:",
+    "@vitest/coverage-v8": "4.1.0",
+    "@vitest/ui": "4.1.0",
+    "@vue/test-utils": "catalog:",
+    "commitizen": "^4.3.1",
+    "eslint": "^9.36.0",
+    "husky": "^8.0.0",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.8.1",
+    "resize-observer-polyfill": "^1.5.1",
+    "tinyglobby": "^0.2.15",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
-  "packageManager": "pnpm@9.0.0",
   "engines": {
-    "node": ">=18"
+    "node": ">=22",
+    "pnpm": ">=10.20.0"
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  },
+  "config": {
+    "commitizen": {
+      "path": "@commitlint/cz-commitlint"
+    }
+  },
+  "lint-staged": {
+    "*.{vue,js,ts,jsx,tsx,md,json}": "eslint --fix"
   }
 }
