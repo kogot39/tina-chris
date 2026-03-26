@@ -11,6 +11,7 @@
     "check-types:desktop": "pnpm -rF @tina-chris/tina-desktop-app run typecheck",
     "check-types:2d": "pnpm -rF @tina-chris/live2d-model run typecheck",
     "dev:ui": "pnpm -rF @tina-chris/tina-ui run dev",
+    "build:ui": "pnpm -rF @tina-chris/tina-ui run build",
     "check-types:ui": "pnpm -rF @tina-chris/tina-ui run typecheck",
     "check-types": "pnpm run \"/^check-types:/\"",
     "lint": "eslint . --ext .vue,.js,.ts,.jsx,.tsx,.md,.json --max-warnings 0 --cache --concurrency=auto",

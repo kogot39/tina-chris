@@ -1,2 +1,3 @@
-// 导出组件
-// 这里可以添加你的组件导出
+import './styles/index.css'
+
+export * from './components'
