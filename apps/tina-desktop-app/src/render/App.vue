@@ -1,36 +1,59 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { Model } from '@tina-chris/live2d-model'
+import { WinLayout } from '@tina-chris/tina-ui'
 
 const modelUrl = ref('/whitecat/whitecat.model3.json')
-const windowWidth = ref(400)
-const windowHeight = ref(600)
+
+// 动态控制窗口大小
+const petWidth = ref(400)
+const petHeight = ref(600)
 const isPaused = ref(false)
+
+onMounted(() => {
+  window.electronAPI.setClickThrough(true)
+  window.electronAPI.setAlwaysOnTop(true)
+})
+
+function enableInteraction(): void {
+  window.electronAPI.setClickThrough(false)
+}
+
+function disableInteraction(): void {
+  window.electronAPI.setClickThrough(true)
+}
 </script>
 
 <template>
-  <div>
-    <div>
+  <div
+    :style="{
+      width: petWidth + 'px',
+      height: petHeight + 'px',
+      right: 0,
+      bottom: 0,
+      position: 'absolute',
+    }"
+    @mouseenter="enableInteraction"
+    @mouseleave="disableInteraction"
+  >
+    <WinLayout>
       <Model
         :model-src="modelUrl"
-        :width="windowWidth"
-        :height="windowHeight - 32"
+        :width="petWidth"
+        :height="petHeight - 32"
         :paused="isPaused"
       />
-    </div>
+    </WinLayout>
   </div>
 </template>
 
 <style>
-body {
-  overflow: hidden;
-  app-region: drag;
-}
-button {
-  app-region: no-drag;
-}
-.titlebar {
-  user-select: none;
-  app-region: drag;
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent !important;
 }
 </style>

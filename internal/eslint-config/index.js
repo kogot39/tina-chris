@@ -30,6 +30,7 @@ export default defineConfig([
       'node_modules',
       // 构建产物
       'dist',
+      '**/dist',
       'dist-*',
       // 锁文件
       'pnpm-lock.yaml',

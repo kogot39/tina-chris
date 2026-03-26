@@ -8,9 +8,8 @@ declare module '*.vue' {
 }
 
 interface ElectronAPI {
-  minimize: () => void
-  close: () => void
-  setAlwaysOnTop: (value: boolean) => void
+  setClickThrough: (enabled: boolean) => Promise<boolean>
+  setAlwaysOnTop: (enabled: boolean) => Promise<boolean>
 }
 
 declare global {

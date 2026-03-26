@@ -14,6 +14,14 @@ export default defineConfig({
     },
   },
   preload: {
+    build: {
+      rollupOptions: {
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].cjs',
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src/preload'),

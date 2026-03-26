@@ -1,5 +1,8 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 
-const electronAPI = {}
-
-contextBridge.exposeInMainWorld('electronAPI', electronAPI)
+contextBridge.exposeInMainWorld('electronAPI', {
+  setClickThrough: (enabled: boolean) =>
+    ipcRenderer.invoke('window:set-click-through', enabled),
+  setAlwaysOnTop: (enabled: boolean) =>
+    ipcRenderer.invoke('window:set-always-on-top', enabled),
+})
