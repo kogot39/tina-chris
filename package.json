@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "create:svelte-template": "node scripts/create-svelte-template.mjs",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "build:desktop": "pnpm -rF @tina-chris/tina-desktop-app run build",
