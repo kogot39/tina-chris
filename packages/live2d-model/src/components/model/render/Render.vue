@@ -9,14 +9,17 @@ import { Live2DModel } from 'pixi-live2d-display/cubism4'
 const props = withDefaults(
   defineProps<{
     modelSrc: string
-    width?: number
-    height?: number
+    width: number
+    height: number
     scale?: number
+    // 是否需要移入设置透明度
+    needTransparentOnHover?: boolean
+    // todo: 后续支持拖拽移动和缩放
+    // todo: 后续支持非对话情景或交互情景下调整为较低帧数
   }>(),
   {
-    width: 400,
-    height: 600,
     scale: 1,
+    needTransparentOnHover: true,
   }
 )
 
@@ -39,14 +42,24 @@ const initModelRenderer = async (container: HTMLDivElement) => {
 
   const canvas = app.value.view as HTMLCanvasElement
   container.appendChild(canvas)
+  // 鼠标移入时设置透明度0.4来避免遮挡用户操作
+  if (props.needTransparentOnHover) {
+    canvas.style.transition = 'opacity 0.3s'
+    canvas.addEventListener('mouseenter', () => {
+      canvas.style.opacity = '0.4'
+    })
+    canvas.addEventListener('mouseleave', () => {
+      canvas.style.opacity = '1'
+    })
+  }
 }
 
 const computedSize = () => {
   if (model.value) {
     const modelWidth = model.value.width / model.value.scale.x
     const modelHeight = model.value.height / model.value.scale.y
-    const scaleX = (props.width * 0.9) / modelWidth
-    const scaleY = (props.height * 0.9) / modelHeight
+    const scaleX = props.width / modelWidth
+    const scaleY = props.height / modelHeight
     const finalScale = Math.min(scaleX, scaleY) * props.scale
 
     model.value.scale.set(finalScale)
@@ -56,7 +69,10 @@ const computedSize = () => {
 }
 
 const loadModel = async () => {
-  if (!app.value || !props.modelSrc) return
+  if (!app.value || !props.modelSrc) {
+    console.error('App not initialized or modelSrc is empty')
+    return
+  }
 
   if (model.value) {
     app.value.stage.removeChild(model.value)
@@ -73,7 +89,10 @@ const loadModel = async () => {
 }
 
 const handleResize = () => {
-  if (!app.value) return
+  if (!app.value) {
+    console.error('App not initialized')
+    return
+  }
 
   app.value.renderer.resize(props.width, props.height)
 
@@ -99,3 +118,5 @@ onUnmounted(() => {
 <template>
   <div ref="container" />
 </template>
+
+<style scoped></style>

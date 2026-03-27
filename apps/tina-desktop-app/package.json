@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@tina-chris/live2d-model": "workspace:*",
-    "@tina-chris/tina-ui": "workspace:*"
+    "@tina-chris/tina-ui": "workspace:*",
+    "@vueuse/core": "^14.2.1"
   },
   "devDependencies": {
     "@electron-toolkit/utils": "catalog:",
