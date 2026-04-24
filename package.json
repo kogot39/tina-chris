@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "create:svelte-template": "node scripts/create-svelte-template.mjs",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "build:desktop": "pnpm -rF @tina-chris/tina-desktop-app run build",
@@ -14,6 +13,10 @@
     "dev:ui": "pnpm -rF @tina-chris/tina-ui run dev",
     "build:ui": "pnpm -rF @tina-chris/tina-ui run build",
     "check-types:ui": "pnpm -rF @tina-chris/tina-ui run typecheck",
+    "build:server": "pnpm -rF @tina-chris/tina-server run build",
+    "build:util": "pnpm -rF @tina-chris/tina-util run build",
+    "build:bus": "pnpm -rF @tina-chris/tina-bus run build",
+    "build:live2d": "pnpm -rF @tina-chris/live2d-model run build",
     "check-types": "pnpm run \"/^check-types:/\"",
     "lint": "eslint . --ext .vue,.js,.ts,.jsx,.tsx,.md,.json --max-warnings 0 --cache --concurrency=auto",
     "lint:fix": "pnpm run lint --fix",

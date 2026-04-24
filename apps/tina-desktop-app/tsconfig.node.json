@@ -1,14 +1,26 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "../../tsconfig.json",
   "compilerOptions": {
     "composite": true,
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "types": ["electron-vite/node"]
+    "types": ["electron-vite/node"],
+    "strict": true,
+    "paths": {
+      "@tina-chris/tina-server": ["../../packages/tina-server/src/index.ts"],
+      "@tina-chris/tina-bus": ["../../packages/tina-bus/src/index.ts"],
+      "@tina-chris/tina-util": ["../../packages/tina-util/src/index.ts"],
+      "@tina-chris/live2d-model/model-storage": [
+        "../../packages/live2d-model/src/modelStorage/index.ts"
+      ]
+    }
   },
   "include": [
     "electron.vite.config.ts",
     "src/main/**/*.ts",
-    "src/preload/**/*.ts"
+    "src/preload/**/*.ts",
+    "src/shared/**/*.ts",
+    "../../packages/tina-server/src/**/*.ts",
+    "../../packages/tina-bus/src/**/*.ts",
+    "../../packages/tina-util/src/**/*.ts",
+    "../../packages/live2d-model/src/modelStorage/**/*.ts"
   ]
 }

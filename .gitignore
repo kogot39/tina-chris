@@ -47,3 +47,17 @@ apps/example
 
 .vite
 .eslintcache
+
+**/*.trace
+**/*.zip
+**/*.tar.gz
+**/*.tgz
+**/*.log
+package-lock.json
+**/*.bun
+.data
+.logger
+.model
+
+agent-example
+agent-example-js

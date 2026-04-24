@@ -62,6 +62,8 @@ export default defineConfig([
       '**/public',
       // 构建输出目录（包括子目录）
       '**/out',
+      // 忽略 .md 文件
+      '**/*.md',
     ],
   },
 

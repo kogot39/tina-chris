@@ -3,6 +3,9 @@
   "typescript.tsdk": "node_modules/typescript/lib",
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "files.eol": "\n",
+  "files.encoding": "utf8",
+  "files.autoGuessEncoding": true,
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "always"
   },

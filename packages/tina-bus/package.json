@@ -1,0 +1,24 @@
+{
+  "name": "@tina-chris/tina-bus",
+  "version": "0.1.0",
+  "description": "bus",
+  "type": "module",
+  "private": true,
+  "main": "./dist/index.mjs",
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./types": "./dist/index.d.mts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown"
+  },
+  "dependencies": {
+    "@tina-chris/tina-util": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "tsdown": "^0.21.9"
+  }
+}

@@ -1,8 +1,23 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "../../tsconfig.json",
   "compilerOptions": {
     "composite": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+    "strict": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "paths": {
+      "@tina-chris/tina-ui": ["../../packages/tina-ui/src/index.ts"],
+      "@tina-chris/tina-ui/*": ["../../packages/tina-ui/src/*"],
+      "@tina-chris/live2d-model": ["../../packages/live2d-model/src/index.ts"]
+    }
   },
-  "include": ["src/render/**/*.ts", "src/render/**/*.vue"]
+  "include": [
+    "src/render/**/*.ts",
+    "src/render/**/*.vue",
+    "src/render/**/*.d.ts",
+    "src/shared/**/*.ts",
+    "../../packages/tina-ui/src/**/*.ts",
+    "../../packages/tina-ui/src/**/*.vue",
+    "../../packages/live2d-model/src/**/*.ts",
+    "../../packages/live2d-model/src/**/*.vue"
+  ]
 }

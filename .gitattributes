@@ -1,0 +1,20 @@
+# Keep text files on LF in both the repository and working tree.
+* text=auto eol=lf
+
+# Common binary assets should never be line-normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.mp3 binary
+*.wav binary
+*.ogg binary
+*.moc3 binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https: blob:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https: tina-model:; connect-src 'self' https: http://localhost:3000 http://127.0.0.1:3000 ws: wss: data: blob: tina-model:; worker-src 'self' blob: https:;"
+  />
+  <link
+    rel="stylesheet"
+    href="../style/index.css"
+  />
+  <title>Live2D Desktop</title>
+  <script src="/live2dcubismcore.min.js"></script>
+  <script
+    src="https://lf1-cdn-tos.bytegoofy.com/obj/iconpark/icons_42960_34.656ad6c9f46302149c183c5b7723f670.js"></script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <script
+    type="module"
+    src="./main.ts"
+  ></script>
+</body>
+
+</html>

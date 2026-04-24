@@ -1,6 +1,6 @@
 {
   "name": "@tina-chris/tina-desktop-app",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -15,9 +15,18 @@
   "dependencies": {
     "@tina-chris/live2d-model": "workspace:*",
     "@tina-chris/tina-ui": "workspace:*",
-    "@vueuse/core": "^14.2.1"
+    "@tina-chris/tina-server": "workspace:*",
+    "@tina-chris/tina-bus": "workspace:*",
+    "@tina-chris/tina-util": "workspace:*",
+    "@vueuse/components": "^14.2.1",
+    "@vueuse/core": "^14.2.1",
+    "uuid": "catalog:",
+    "vue": "catalog:",
+    "vue-router": "catalog:"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "catalog:",
+    "tailwindcss": "catalog:",
     "@electron-toolkit/utils": "catalog:",
     "@types/node": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
@@ -25,7 +34,6 @@
     "electron-vite": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vue": "catalog:",
     "vue-tsc": "catalog:"
   }
 }

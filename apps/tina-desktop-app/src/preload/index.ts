@@ -1,8 +1,197 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+import type { OutboundMessage } from '@tina-chris/tina-bus'
+import type {
+  ActiveModelInfo,
+  AgentConfigData,
+  AgentSaveResult,
+  LLMProviderItem,
+  LLMSaveResult,
+  STTProviderItem,
+  STTSaveResult,
+  StoredModelItem,
+  TTSProviderItem,
+  TTSSaveResult,
+  TTSVoiceCloneItem,
+  ToolProviderItem,
+  ToolSaveResult,
+  ToolTypeItem,
+} from '../shared'
+
 contextBridge.exposeInMainWorld('electronAPI', {
+  // 窗口行为相关的 API
   setClickThrough: (enabled: boolean) =>
     ipcRenderer.invoke('window:set-click-through', enabled),
   setAlwaysOnTop: (enabled: boolean) =>
     ipcRenderer.invoke('window:set-always-on-top', enabled),
+  // 窗口控制相关的 API
+  openSettingWindow: () => ipcRenderer.invoke('window:open-setting'),
+  closeSettingWindow: () => ipcRenderer.invoke('window:close-setting'),
+  minimizeSettingWindow: () => ipcRenderer.invoke('window:minimize-setting'),
+  // live2d 模型管理相关的 API
+  listModels: () =>
+    ipcRenderer.invoke('model:list') as Promise<StoredModelItem[]>,
+  getActiveModel: () =>
+    ipcRenderer.invoke('model:get-active') as Promise<ActiveModelInfo>,
+  setActiveModel: (modelId: string) =>
+    ipcRenderer.invoke('model:set-active', modelId) as Promise<ActiveModelInfo>,
+  importModel: () =>
+    ipcRenderer.invoke('model:import') as Promise<ActiveModelInfo | null>,
+  deleteModel: (modelId: string) =>
+    ipcRenderer.invoke('model:delete', modelId) as Promise<ActiveModelInfo>,
+  resetDefaultModel: () =>
+    ipcRenderer.invoke('model:reset-default') as Promise<ActiveModelInfo>,
+  onActiveModelChanged: (callback: (model: ActiveModelInfo) => void) => {
+    const listener = (_event: unknown, model: ActiveModelInfo) => {
+      callback(model)
+    }
+
+    // 订阅模型变更事件
+    ipcRenderer.on('model:active-changed', listener)
+    return () => {
+      ipcRenderer.off('model:active-changed', listener)
+    }
+  },
+  // 设置关闭回调
+  onSettingClosed: (callback: () => void) => {
+    const listener = () => {
+      callback()
+    }
+
+    ipcRenderer.on('window:setting-closed', listener)
+    return () => {
+      ipcRenderer.off('window:setting-closed', listener)
+    }
+  },
+  // 总线相关的 API
+  subscribeOutboundMessage: (callback: (message: OutboundMessage) => void) => {
+    const listener = (_event: unknown, message: OutboundMessage) => {
+      callback(message)
+    }
+
+    ipcRenderer.on('bus:outbound-message', listener)
+
+    return () => {
+      ipcRenderer.off('bus:outbound-message', listener)
+    }
+  },
+  sendAudioInboundMessageStart: () =>
+    ipcRenderer.invoke('bus:send-inbound-start'),
+  sendAudioInboundMessage: (audio: ArrayBuffer) =>
+    ipcRenderer.invoke('bus:send-inbound-audio', audio),
+  sendAudioInboundMessageEnd: () => ipcRenderer.invoke('bus:send-inbound-end'),
+  sendTextInboundMessage: (content: string) =>
+    ipcRenderer.invoke('bus:send-inbound-text', content) as Promise<boolean>,
+  // 语音识别相关的 API
+  listSTTProviders: () =>
+    ipcRenderer.invoke('stt:list-providers') as Promise<STTProviderItem[]>,
+  getCurrentSTTProvider: () =>
+    ipcRenderer.invoke('stt:get-current-provider') as Promise<string>,
+  getSTTConfigForm: (providerKey: string) =>
+    ipcRenderer.invoke('stt:get-config-form', providerKey),
+  getCurrentSTTConfig: (providerKey: string) =>
+    ipcRenderer.invoke('stt:get-current-config', providerKey) as Promise<Record<
+      string,
+      unknown
+    > | null>,
+  saveSTTConfig: (providerKey: string, values: Record<string, unknown>) =>
+    ipcRenderer.invoke(
+      'stt:save-config',
+      providerKey,
+      values
+    ) as Promise<STTSaveResult>,
+  // TTS 相关的 API
+  listTTSProviders: () =>
+    ipcRenderer.invoke('tts:list-providers') as Promise<TTSProviderItem[]>,
+  getCurrentTTSProvider: () =>
+    ipcRenderer.invoke('tts:get-current-provider') as Promise<string>,
+  getTTSConfigForm: (providerKey: string) =>
+    ipcRenderer.invoke('tts:get-config-form', providerKey),
+  getCurrentTTSConfig: (providerKey: string) =>
+    ipcRenderer.invoke('tts:get-current-config', providerKey) as Promise<Record<
+      string,
+      unknown
+    > | null>,
+  saveTTSConfig: (providerKey: string, values: Record<string, unknown>) =>
+    ipcRenderer.invoke(
+      'tts:save-config',
+      providerKey,
+      values
+    ) as Promise<TTSSaveResult>,
+  getTTSVoiceCloneForm: (providerKey: string) =>
+    ipcRenderer.invoke('tts:get-voice-clone-form', providerKey),
+  createTTSVoiceClone: (providerKey: string, values: Record<string, unknown>) =>
+    ipcRenderer.invoke(
+      'tts:create-voice-clone',
+      providerKey,
+      values
+    ) as Promise<Record<string, unknown>>,
+  listTTSVoiceClones: (providerKey: string) =>
+    ipcRenderer.invoke('tts:list-voice-clones', providerKey) as Promise<
+      TTSVoiceCloneItem[]
+    >,
+  deleteTTSVoiceClone: (providerKey: string, voice: string) =>
+    ipcRenderer.invoke(
+      'tts:delete-voice-clone',
+      providerKey,
+      voice
+    ) as Promise<boolean>,
+  // LLM 相关的 API
+  listLLMProviders: () =>
+    ipcRenderer.invoke('llm:list-providers') as Promise<LLMProviderItem[]>,
+  getCurrentLLMProvider: () =>
+    ipcRenderer.invoke('llm:get-current-provider') as Promise<string>,
+  getLLMConfigForm: (providerKey: string) =>
+    ipcRenderer.invoke('llm:get-config-form', providerKey),
+  getCurrentLLMConfig: (providerKey: string) =>
+    ipcRenderer.invoke('llm:get-current-config', providerKey) as Promise<Record<
+      string,
+      unknown
+    > | null>,
+  saveLLMConfig: (providerKey: string, values: Record<string, unknown>) =>
+    ipcRenderer.invoke(
+      'llm:save-config',
+      providerKey,
+      values
+    ) as Promise<LLMSaveResult>,
+  // 工具相关的 API
+  listToolTypes: () =>
+    ipcRenderer.invoke('tool:list-types') as Promise<ToolTypeItem[]>,
+  listToolProviders: (toolType: string) =>
+    ipcRenderer.invoke('tool:list-providers', toolType) as Promise<
+      ToolProviderItem[]
+    >,
+  getCurrentToolProvider: (toolType: string) =>
+    ipcRenderer.invoke(
+      'tool:get-current-provider',
+      toolType
+    ) as Promise<string>,
+  getToolConfigForm: (toolType: string, providerKey: string) =>
+    ipcRenderer.invoke(
+      'tool:get-config-form',
+      toolType,
+      providerKey
+    ) as Promise<Record<string, unknown>>,
+  getCurrentToolConfig: (toolType: string, providerKey: string) =>
+    ipcRenderer.invoke(
+      'tool:get-current-config',
+      toolType,
+      providerKey
+    ) as Promise<Record<string, unknown> | null>,
+  saveToolConfig: (
+    toolType: string,
+    providerKey: string,
+    values: Record<string, unknown>
+  ) =>
+    ipcRenderer.invoke(
+      'tool:save-config',
+      toolType,
+      providerKey,
+      values
+    ) as Promise<ToolSaveResult>,
+  // Agent 相关的 API
+  getAgentConfig: () =>
+    ipcRenderer.invoke('agent:get-config') as Promise<AgentConfigData>,
+  saveAgentConfig: (values: AgentConfigData) =>
+    ipcRenderer.invoke('agent:save-config', values) as Promise<AgentSaveResult>,
 })

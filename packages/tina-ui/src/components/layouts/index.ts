@@ -1,1 +1,5 @@
-export { default as WinLayout } from './winLayout.vue'
+export { default as ModelLayout } from './ModelLayout.vue'
+export { default as WinLayout } from './WinLayout.vue'
+export { default as ChatLayout } from './ChatLayout.vue'
+export { default as CardsLayout } from './CardsLayout.vue'
+export { default as FieldsetLayout } from './FieldsetLayout.vue'
