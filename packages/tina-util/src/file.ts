@@ -30,3 +30,12 @@ export function getRootFilePath(filename: string): string {
   const fileDir = path.join(os.homedir(), '.tina-chris', filename)
   return fileDir
 }
+
+export const resolveWorkspacePath = (workspace: string): string => {
+  const normalizedWorkspace = workspace.trim()
+  if (!normalizedWorkspace) {
+    throw new Error('Agent workspace is required.')
+  }
+
+  return path.resolve(expandHomePath(normalizedWorkspace))
+}

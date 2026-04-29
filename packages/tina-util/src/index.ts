@@ -1,3 +1,5 @@
 export * from './logger'
 export * from './writableIterator'
 export * from './file'
+export * from './date'
+export * from './string'

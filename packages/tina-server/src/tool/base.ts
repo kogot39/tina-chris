@@ -2,6 +2,7 @@
 // 每个具体的工具需要继承这个抽象类并实现这些属性和方法，以便在 AgentLoop 中被注册和调用。
 export type ToolParameters = Record<string, unknown>
 
+// TODO: 后续使用 Zod 定义参数结构，提供更丰富的类型信息和验证能力
 export type ToolSchema = {
   type: 'function'
   function: {

@@ -1,60 +1,20 @@
 import fs from 'fs'
 import path from 'path'
-import { expandHomePath } from '@tina-chris/tina-util'
+import {
+  buildSection,
+  normalizeText,
+  renderBulletList,
+  renderKeyValueLine,
+  renderParagraphs,
+  resolveWorkspacePath,
+} from '@tina-chris/tina-util'
 import { SkillLoader } from './skills'
 
+import type { MemoryStore } from '@/memory'
 import type { AgentConfig } from '@/config'
 
 export const REQUIRED_PROMPT_FILES = ['USER.md', 'AGENT.md', 'SOUL.md'] as const
 const BOOTSTRAP_FILES = ['AGENT.md', 'SOUL.md', 'USER.md', 'TOOLS.md'] as const
-
-// 导出的工具函数用于前端构建时使用，确保用户配置的引导文件能够正确生成系统提示词并同步到工作空间目录中
-const splitLines = (value: string): string[] => {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-}
-
-const normalizeText = (value: string): string => {
-  return value.trim()
-}
-
-const renderBulletList = (value: string): string => {
-  const items = splitLines(value)
-  if (items.length === 0) {
-    return ''
-  }
-
-  return items.map((item) => `- ${item}`).join('\n')
-}
-
-const renderParagraphs = (value: string): string => {
-  const paragraphs = value
-    .split(/\r?\n\s*\r?\n/)
-    .map((paragraph) => paragraph.trim())
-    .filter((paragraph) => paragraph.length > 0)
-
-  return paragraphs.join('\n\n')
-}
-
-const renderKeyValueLine = (label: string, value: string): string => {
-  return `- **${label}**: ${normalizeText(value)}`
-}
-
-const buildSection = (title: string, content: string): string => {
-  const normalizedContent = content.trim()
-  return normalizedContent ? `${title}\n\n${normalizedContent}` : title
-}
-
-export const resolveWorkspacePath = (workspace: string): string => {
-  const normalizedWorkspace = workspace.trim()
-  if (!normalizedWorkspace) {
-    throw new Error('Agent workspace is required.')
-  }
-
-  return path.resolve(expandHomePath(normalizedWorkspace))
-}
 
 export const getMissingPromptFiles = (workspacePath: string): string[] => {
   return REQUIRED_PROMPT_FILES.filter((filename) => {
@@ -64,16 +24,7 @@ export const getMissingPromptFiles = (workspacePath: string): string[] => {
 }
 
 // TODO: 具体提示词内容可以再优化
-export const validateWorkspacePromptFiles = (
-  agentConfig: AgentConfig
-): { workspacePath: string; missingFiles: string[] } => {
-  const workspacePath = resolveWorkspacePath(agentConfig.workspace)
-  return {
-    workspacePath,
-    missingFiles: getMissingPromptFiles(workspacePath),
-  }
-}
-
+// 导出的工具函数用于前端构建时使用，确保用户配置的引导文件能够正确生成系统提示词并同步到工作空间目录中
 export const buildUserPromptDocument = (agentConfig: AgentConfig): string => {
   const { userProfile } = agentConfig
 
@@ -199,28 +150,46 @@ export const syncWorkspacePromptFiles = (
 }
 
 export class ContextBuilder {
-  private skills: SkillLoader
   private systemPrompt: string
 
-  constructor(private workspacePath: string) {
+  constructor(
+    private workspacePath: string,
+    private memoryStore: MemoryStore,
+    private skills: SkillLoader
+  ) {
+    // 检查提示词文件是否存在，如果缺失则抛出错误，确保系统提示词能够正确构建
+    getMissingPromptFiles(workspacePath).forEach((filename) => {
+      throw new Error(
+        `Missing required prompt file: ${filename} in workspace: ${workspacePath}`
+      )
+    })
     // 初始化 skills 加载器和系统提示词
-    this.skills = new SkillLoader(workspacePath)
     this.systemPrompt = this.buildSystemPrompt()
   }
 
   buildMessages(
     history: Array<Record<string, any>>,
     currentMessage: string,
-    extraSystemPrompt = ''
+    options: {
+      // 用于读取指定会话的记忆上下文
+      sessionKey: string
+      // 额外添加提示词
+      extraSystemPrompt?: string
+    }
   ): Array<Record<string, any>> {
-    const systemPrompt = extraSystemPrompt.trim()
-      ? `${this.systemPrompt}\n\n---\n\n${extraSystemPrompt.trim()}`
-      : this.systemPrompt
+    // systemPrompt 是初始化时构建的稳定部分，memoryContext 是每轮动态读取的部分
+    // 这样 Agent 保存记忆或摘要器更新会话摘要后，下一轮对话就能立即读到新内容
+    const systemParts = [
+      this.systemPrompt,
+      // 记忆上下文放在系统提示词里，确保模型每轮都能看到最新的记忆内容，辅助回答和决策
+      this.memoryStore.buildMemoryContext(options.sessionKey),
+      options.extraSystemPrompt || '',
+    ].filter((part) => part.trim().length > 0)
 
     return [
       {
         role: 'system',
-        content: systemPrompt,
+        content: systemParts.join('\n\n---\n\n'),
       },
       ...history,
       {
@@ -282,7 +251,7 @@ export class ContextBuilder {
       '',
       'You are a desktop AI assistant. You answer directly unless a tool is needed.',
       'You need to obey the settings and guidance provided by the user.',
-      'You can read files inside the configured workspace, list workspace directories, search the web when configured, fetch web pages, and send messages back to the current chat.',
+      'You can read files inside the configured workspace, list workspace directories, search the web when configured, fetch web pages, manage memory through dedicated memory tools, spawn safe subagents for independent research tasks, and send messages back to the current chat.',
       '',
       '## Current Time',
       now,
@@ -290,8 +259,16 @@ export class ContextBuilder {
       '## Workspace',
       this.workspacePath,
       '',
+      '## Memory Paths',
+      `Long-term memory: ${path.join(this.workspacePath, 'memory', 'MEMORY.md')}`,
+      `Daily memory: ${path.join(this.workspacePath, 'memory', 'YYYY-MM-DD.md')}`,
+      `Session summaries: ${path.join(this.workspacePath, 'memory', 'sessions')}`,
+      '',
       'Important rules:',
       '- Use tools only when they help answer or complete the user request.',
+      '- Use memory tools for durable facts, user preferences, project context, and useful daily notes.',
+      '- Use readMemory when recalling a specific date, multiple dates, or the current session summary would help.',
+      '- Use spawnSubagent only for independent work that can run in the background with safe read/search tools.',
       '- Never claim you changed files unless a write-capable tool exists and succeeded.',
       '- If required context is missing, explain what is missing clearly.',
     ].join('\n')

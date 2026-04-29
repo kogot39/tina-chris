@@ -6,35 +6,37 @@ import {
   MessageBus,
   OutboundMessage,
 } from '@tina-chris/tina-bus'
-import { logger } from '@tina-chris/tina-util'
-import { ContextBuilder, validateWorkspacePromptFiles } from './context'
+import { logger, resolveWorkspacePath } from '@tina-chris/tina-util'
+import { ContextBuilder } from './context'
+import { DESKTOP_SPEECH_PROMPT } from './prompt'
 import {
   type SpeakTagStreamEvent,
   SpeakTagStreamParser,
 } from './speakTagParser'
+import { SubagentManager } from './subagent'
+import { SkillLoader } from './skills'
 
 import type { Config } from '@/config'
+import type { Session } from '@/session'
 
 import { LLMManager } from '@/llm'
+import { MemoryStore, SessionMemorySummarizer } from '@/memory'
 import { SessionManager } from '@/session'
-import { MessageTool, ToolRegistry, createDefaultToolRegistry } from '@/tool'
+import {
+  MessageTool,
+  ReadMemoryTool,
+  SpawnSubagentTool,
+  ToolRegistry,
+  createDefaultToolRegistry,
+} from '@/tool'
 
 type AgentLoopRuntime = {
   workspacePath: string
   sessionManager: SessionManager
   contextBuilder: ContextBuilder
   toolRegistry: ToolRegistry
+  memorySummarizer: SessionMemorySummarizer
 }
-
-// 这个移到 context 模块
-const DESKTOP_SPEECH_PROMPT = [
-  '## Desktop Voice Output',
-  'When you want the desktop assistant to speak aloud, wrap only the spoken text in <speak>...</speak>.',
-  'Text inside <speak> is also shown in chat; the tags themselves are hidden by the desktop renderer.',
-  'For basic daily conversation, produce short <speak> content quickly so the user does not wait for voice feedback.',
-  'Before long-running tasks such as searching, analyzing large context, or using tools for a while, briefly speak a status update telling the user to wait.',
-  'Do not wrap code blocks, long lists, URLs, tool arguments, or private reasoning in <speak>.',
-].join('\n')
 
 export class AgentLoop {
   private runtime: AgentLoopRuntime | null = null
@@ -60,31 +62,43 @@ export class AgentLoop {
     this.initializationError = null
 
     try {
-      // 验证工作区所需的提示文件是否存在，并获取工作区路径。如果缺少文件，记录错误信息并返回。
-      const { workspacePath, missingFiles } = validateWorkspacePromptFiles(
-        this.config.agent
-      )
+      // 统一验证工作区是否存在
+      const workspacePath = resolveWorkspacePath(this.config.agent.workspace)
 
-      if (missingFiles.length > 0) {
-        this.initializationError = `Agent workspace is missing required prompt files: ${missingFiles.join(
-          ', '
-        )}. Please save Agent configuration first.`
-        return
-      }
+      // 记忆、上下文构建器、工具注册表必须共用同一个 workspacePath。
+      // 这样记忆工具写入的内容，下一轮 ContextBuilder 注入上下文时能从同一处读回。
+      const memoryStore = new MemoryStore(workspacePath)
+      const skills = new SkillLoader(workspacePath)
+      const subagentManager = new SubagentManager({
+        config: this.config,
+        llm: this.llm,
+        bus: this.bus,
+        workspacePath,
+        memoryStore,
+      })
 
+      // runtime 是 AgentLoop 当前配置的一次性快照。
+      // 当用户修改 Agent 配置后，initialize() 会重新创建这些对象，避免旧工具继续持有过期配置。
       this.runtime = {
         workspacePath,
         sessionManager: new SessionManager(workspacePath),
-        contextBuilder: new ContextBuilder(workspacePath),
+        contextBuilder: new ContextBuilder(workspacePath, memoryStore, skills),
         toolRegistry: createDefaultToolRegistry({
           config: this.config,
           workspacePath,
           bus: this.bus,
+          memoryStore,
+          subagentManager,
         }),
+        memorySummarizer: new SessionMemorySummarizer(
+          memoryStore,
+          this.llm,
+          this.config
+        ),
       }
-    } catch {
+    } catch (error) {
       this.initializationError =
-        'Agent workspace is not configured. Please set workspace in Agent settings and save prompt files first.'
+        error instanceof Error ? error.message : String(error)
     }
   }
 
@@ -124,22 +138,44 @@ export class AgentLoop {
 
     // 获取会话上下文
     const session = runtime.sessionManager.getOrCreate(message.sessionKey)
-    // 获取已注册的工具信息
-    const tools = runtime.toolRegistry.getDefinitions()
-    // 重置消息工具上下文
+
+    // 工具实例会在 runtime 生命周期内复用；这里按“当前入站消息”刷新运行时上下文。
+    // message 工具需要知道发回哪个 channel/chatId，memory 和 subagent 需要知道当前 sessionKey。
     const messageTool = runtime.toolRegistry.get('message')
     if (messageTool instanceof MessageTool) {
       messageTool.setContext(message.channel, message.chatId)
     }
-    // 针对桌面端采用流式输出和支持语音输入
-    const shouldStream = message.channel === 'desktop'
+    const readMemoryTool = runtime.toolRegistry.get('readMemory')
+    if (readMemoryTool instanceof ReadMemoryTool) {
+      readMemoryTool.setContext(message.sessionKey)
+    }
+    const spawnSubagentTool = runtime.toolRegistry.get('spawnSubagent')
+    if (spawnSubagentTool instanceof SpawnSubagentTool) {
+      spawnSubagentTool.setContext(
+        message.channel,
+        message.chatId,
+        message.sessionKey
+      )
+    }
+
+    const isSubagentResult = this.isSubagentResultMessage(message)
+    // subagent 完成后的回报只需要主 Agent 整理成自然语言。
+    // 这里不再开放工具调用，避免“汇报结果”阶段继续读取文件、继续搜索或再次派生任务。
+    const tools = isSubagentResult ? [] : runtime.toolRegistry.getDefinitions()
+    // 针对桌面端采用流式输出和支持语音输入。
+    // 子代理回报是系统内部消息，禁用流式和 TTS 可以避免后台结果突然触发语音播报。
+    const shouldStream = message.channel === 'desktop' && !isSubagentResult
+    // 流式且启用 TTS 时才使用说话标签解析器，增量处理语音事件；其他情况直接当作普通文本处理。
     const shouldUseSpeech = shouldStream && Boolean(this.config.tts.current)
     const speechParser = shouldUseSpeech ? new SpeakTagStreamParser() : null
     let messages = runtime.contextBuilder.buildMessages(
       session.getHistory(),
       content,
-      // 附加上语音输出使用的提示词
-      shouldUseSpeech ? DESKTOP_SPEECH_PROMPT : ''
+      {
+        sessionKey: message.sessionKey,
+        // 附加上语音输出使用的提示词
+        extraSystemPrompt: shouldUseSpeech ? DESKTOP_SPEECH_PROMPT : '',
+      }
     )
     const streamId = randomUUID()
     let finalContent = ''
@@ -263,14 +299,44 @@ export class AgentLoop {
       finishSpeech()
     }
 
-    // 保存会话记录
+    // 保存会话记录后再异步调度摘要。
+    // 摘要器需要看到本轮 user/assistant 的最终内容，但摘要失败不应该影响当前回复。
     session.addMessage('user', content)
     session.addMessage('assistant', finalContent)
     runtime.sessionManager.save(session)
+    this.scheduleSessionSummary(runtime, session)
   }
 
   private getRuntime(): AgentLoopRuntime | null {
     return this.runtime
+  }
+
+  private isSubagentResultMessage(message: InboundMessage): boolean {
+    // SubagentManager 会把结果以 sendTo='agent' 的入站消息投回来，
+    // metadata.subagentResult 是主循环区分“用户消息”和“后台结果汇报”的唯一标记。
+    return (
+      message.senderId === 'subagent' &&
+      message.metadata.subagentResult === true
+    )
+  }
+
+  private scheduleSessionSummary(
+    runtime: AgentLoopRuntime,
+    session: Session
+  ): void {
+    // 摘要更新是后台增强流程：
+    // 不 await 可以让用户先拿到当前回复；完成后再保存 session metadata 中的摘要进度。
+    runtime.memorySummarizer
+      .summarizeIfNeeded(session)
+      .then((updated) => {
+        if (updated) {
+          runtime.sessionManager.save(session)
+        }
+      })
+      .catch((error) => {
+        const reason = error instanceof Error ? error.message : String(error)
+        logger.warn(`[AgentLoop] session memory summary skipped: ${reason}`)
+      })
   }
 
   // handleSpeakEvent 负责处理从 LLM 响应中解析出的 speak 标签事件，
