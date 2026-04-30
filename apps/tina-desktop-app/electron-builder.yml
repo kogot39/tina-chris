@@ -1,0 +1,56 @@
+appId: com.tina-chris.desktop
+productName: Tina Chris
+copyright: Copyright © 2026 Tina Chris contributors
+
+directories:
+  # 安装包和解包预览都会输出到桌面应用目录下，避免污染 monorepo 根目录。
+  output: release
+
+files:
+  # electron-vite 的三端构建产物：main、preload、renderer。
+  - out/**
+  # 主进程启动时会从 public 读取窗口图标和内置 Live2D 默认模型。
+  - public/**
+  - package.json
+  # main/preload/renderer 已由 electron-vite 打包；生产安装包无需携带 pnpm node_modules。
+  - '!node_modules/**'
+
+asar: true
+asarUnpack:
+  # 内置模型首次启动会被复制到用户本地 .model 目录，解包后文件系统访问更稳。
+  - public/hiyori_free_t08/**
+
+npmRebuild: false
+
+win:
+  # TODO: 图标配置还有一点问题，设置页加载不到对应图标
+  icon: public/favicon.ico
+  # 本项目暂未配置代码签名证书。关闭签名/资源编辑后，
+  # 普通 Windows 开发环境无需管理员符号链接权限也能完成本地打包。
+  signAndEditExecutable: false
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Tina Chris
+  deleteAppDataOnUninstall: false
+
+mac:
+  target:
+    - dmg
+
+linux:
+  icon: public/favicon.png
+  category: Utility
+  target:
+    - AppImage
+    - deb
+
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}

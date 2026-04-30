@@ -1,5 +1,5 @@
 import path, { join } from 'path'
-import { pathToFileURL } from 'url'
+import { fileURLToPath, pathToFileURL } from 'url'
 import {
   BrowserWindow,
   Menu,
@@ -62,6 +62,10 @@ import {
 import { getRootFilePath } from '@tina-chris/tina-util'
 
 import type { OutboundMessage } from '@tina-chris/tina-bus'
+
+// Electron main 入口在当前包的 type=module 下会以 ESM 运行。
+// 打包配置调整后不能再依赖 CommonJS 注入的 __dirname，因此这里显式从 import.meta.url 还原。
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // 注册自定义协议，确保其具有适当的权限以支持安全的资源加载
 protocol.registerSchemesAsPrivileged([
@@ -207,9 +211,9 @@ function createWindow(): void {
     },
   })
 
-  mainWindow.webContents.openDevTools()
-
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    // 开发环境下加载 Vite 服务器地址，支持热更新，并打开开发者工具以便调试
+    mainWindow.webContents.openDevTools()
     mainWindow.loadURL(
       `${process.env['ELECTRON_RENDERER_URL']}/main/index.html`
     )
@@ -259,13 +263,14 @@ function createWindow(): void {
     })
 
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+      // 开发环境下加载 Vite 服务器地址，支持热更新，并打开开发者工具以便调试
+      settingWindow.webContents.openDevTools()
       settingWindow.loadURL(
         `${process.env['ELECTRON_RENDERER_URL']}/setting/index.html`
       )
     } else {
       settingWindow.loadFile(join(__dirname, '../renderer/setting/index.html'))
     }
-    settingWindow.webContents.openDevTools()
 
     settingWindow.once('ready-to-show', () => {
       settingWindow?.show()

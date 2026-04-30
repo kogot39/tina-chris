@@ -1,12 +1,19 @@
 {
   "name": "@tina-chris/tina-desktop-app",
   "version": "0.1.0",
+  "description": "Tina Chris desktop AI companion app.",
+  "author": "Tina Chris contributors",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "pack": "pnpm run build && electron-builder --dir",
+    "dist": "pnpm run build && electron-builder",
+    "dist:win": "pnpm run build && electron-builder --win",
+    "dist:mac": "pnpm run build && electron-builder --mac",
+    "dist:linux": "pnpm run build && electron-builder --linux",
     "preview": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",
@@ -14,9 +21,9 @@
   },
   "dependencies": {
     "@tina-chris/live2d-model": "workspace:*",
-    "@tina-chris/tina-ui": "workspace:*",
-    "@tina-chris/tina-server": "workspace:*",
     "@tina-chris/tina-bus": "workspace:*",
+    "@tina-chris/tina-server": "workspace:*",
+    "@tina-chris/tina-ui": "workspace:*",
     "@tina-chris/tina-util": "workspace:*",
     "@vueuse/components": "^14.2.1",
     "@vueuse/core": "^14.2.1",
@@ -25,13 +32,14 @@
     "vue-router": "catalog:"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "catalog:",
-    "tailwindcss": "catalog:",
     "@electron-toolkit/utils": "catalog:",
+    "@tailwindcss/vite": "catalog:",
     "@types/node": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
     "electron": "catalog:",
+    "electron-builder": "^26.8.1",
     "electron-vite": "catalog:",
+    "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vue-tsc": "catalog:"

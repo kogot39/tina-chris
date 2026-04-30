@@ -19,6 +19,7 @@ coverage
 # Build Outputs
 out/
 dist/
+release/
 
 # IDE
 .vscode/*
