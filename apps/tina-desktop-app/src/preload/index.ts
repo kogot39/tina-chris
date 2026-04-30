@@ -5,6 +5,10 @@ import type {
   ActiveModelInfo,
   AgentConfigData,
   AgentSaveResult,
+  ChannelEnabledResult,
+  ChannelProviderItem,
+  ChannelSaveResult,
+  ChannelStatus,
   LLMProviderItem,
   LLMSaveResult,
   STTProviderItem,
@@ -82,6 +86,41 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendAudioInboundMessageEnd: () => ipcRenderer.invoke('bus:send-inbound-end'),
   sendTextInboundMessage: (content: string) =>
     ipcRenderer.invoke('bus:send-inbound-text', content) as Promise<boolean>,
+  // 聊天通道相关的 API
+  listChannelProviders: () =>
+    ipcRenderer.invoke('channel:list-providers') as Promise<
+      ChannelProviderItem[]
+    >,
+  getChannelConfigForm: (providerKey: string) =>
+    ipcRenderer.invoke('channel:get-config-form', providerKey),
+  getCurrentChannelConfig: (providerKey: string) =>
+    ipcRenderer.invoke(
+      'channel:get-current-config',
+      providerKey
+    ) as Promise<Record<string, unknown> | null>,
+  saveChannelConfig: (providerKey: string, values: Record<string, unknown>) =>
+    ipcRenderer.invoke(
+      'channel:save-config',
+      providerKey,
+      values
+    ) as Promise<ChannelSaveResult>,
+  setChannelEnabled: (providerKey: string, enabled: boolean) =>
+    ipcRenderer.invoke(
+      'channel:set-enabled',
+      providerKey,
+      enabled
+    ) as Promise<ChannelEnabledResult>,
+  getChannelStatus: (providerKey: string) =>
+    ipcRenderer.invoke(
+      'channel:get-status',
+      providerKey
+    ) as Promise<ChannelStatus>,
+  startChannel: (providerKey?: string) =>
+    ipcRenderer.invoke('channel:start', providerKey) as Promise<
+      ChannelStatus[]
+    >,
+  stopChannel: (providerKey?: string) =>
+    ipcRenderer.invoke('channel:stop', providerKey) as Promise<ChannelStatus[]>,
   // 语音识别相关的 API
   listSTTProviders: () =>
     ipcRenderer.invoke('stt:list-providers') as Promise<STTProviderItem[]>,

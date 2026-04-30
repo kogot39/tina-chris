@@ -37,5 +37,11 @@ const cards = ref([
     buttonText: '管理工具',
     path: '/setting/tools',
   },
+  {
+    title: '聊天通道',
+    description: '配置 QQ 等第三方聊天工具，用于远程与 Agent 交互',
+    buttonText: '管理通道',
+    path: '/setting/channelprovider',
+  },
 ])
 </script>

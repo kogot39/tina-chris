@@ -18,12 +18,15 @@
         :title="item.title"
         :description="item.description"
         :button-text="item.buttonText"
+        :show-switch-button="props.showSwitchButton"
+        :checked="item.state"
         class="card-item"
         :style="{
           '--enter-delay': `${index * 100}ms`,
           '--leave-delay': `${(displayItems.length - 1 - index) * 100}ms`,
         }"
         @to-page="toPage(item.path)"
+        @switch="(checked) => handleStateSwitch(item.path, checked)"
       />
     </TransitionGroup>
   </div>
@@ -43,10 +46,16 @@ type CardItem = {
   description: string
   buttonText: string
   path: string
+  state?: boolean
 }
 
 const props = defineProps<{
   items: CardItem[]
+  showSwitchButton?: boolean
+}>()
+
+const emit = defineEmits<{
+  onSwitch: [path: string, checked: boolean]
 }>()
 
 const displayItems = ref<CardItem[]>([...props.items])
@@ -76,6 +85,10 @@ const toPage = (path: string) => {
   window.setTimeout(() => {
     router.push(path)
   }, totalLeaveMs)
+}
+
+const handleStateSwitch = (path: string, checked: boolean) => {
+  emit('onSwitch', path, checked)
 }
 
 onMounted(async () => {

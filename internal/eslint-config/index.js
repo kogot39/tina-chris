@@ -54,8 +54,9 @@ export default defineConfig([
       'logs',
       // Vite 构建缓存（包括子目录）
       '**/.vite',
-      // 库目录（包括子目录）
+      // 库目录（包括子目录，不包括 tina-server 下的lib）
       '**/lib',
+      '!**/tina-server/**/lib', // 允许 tina-server/lib 目录被检查
       // 静态资源目录（包括子目录）
       '**/assets',
       // 公共目录（包括子目录）

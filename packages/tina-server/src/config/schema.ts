@@ -1,4 +1,5 @@
 import { CustomLLMConfig } from '@/llm/lib/custom/customLLM'
+import { QQBotChannelConfig } from '@/channel/lib/qq/qqBotConfig'
 import { QwenSTTConfig } from '@/stt'
 import { QwenTTSConfig } from '@/tts/lib/qwen/qwenTTS'
 
@@ -16,6 +17,10 @@ class STTConfigs {
 class LLMConfigs {
   current: 'custom' | '' = ''
   custom: CustomLLMConfig = new CustomLLMConfig()
+}
+
+class ChannelConfigs {
+  qq: QQBotChannelConfig = new QQBotChannelConfig()
 }
 
 // TODO: 里面的部分字段界限可能不太清晰，后续可能需要调整并配合前端进行更详细的说明
@@ -120,6 +125,7 @@ export class Config {
   stt: STTConfigs = new STTConfigs()
   agent: AgentConfig = new AgentConfig()
   llm: LLMConfigs = new LLMConfigs()
+  channels: ChannelConfigs = new ChannelConfigs()
   tools: ToolsConfig = new ToolsConfig()
 
   getConfig(type: 'tts' | 'stt' | 'agent' | 'llm') {
@@ -134,6 +140,27 @@ export class Config {
     }
 
     return configGroup[current]
+  }
+
+  getChannelConfig(channelKey: string) {
+    const channelGroup = (this.channels as unknown as PlainObject)[channelKey]
+    if (!isPlainObject(channelGroup)) {
+      return undefined
+    }
+    return channelGroup
+  }
+
+  // 获取所有 Channel 的配置，供 ChannelManager 在启动时使用
+  getAllChannelConfigs() {
+    const channelsConfig = this.channels as unknown as PlainObject
+    const result: Record<string, PlainObject> = {}
+    for (const key of Object.keys(channelsConfig)) {
+      const channelConfig = channelsConfig[key]
+      if (isPlainObject(channelConfig)) {
+        result[key] = channelConfig
+      }
+    }
+    return result
   }
 
   getToolConfig(toolType: string) {
@@ -168,6 +195,15 @@ export class Config {
 
     configGroup.current = newCurrent
     mergeByShape(nextConfig, configData)
+  }
+
+  updateChannelConfig(channelKey: string, configData: Record<string, any>) {
+    const channelGroup = (this.channels as unknown as PlainObject)[channelKey]
+    if (!isPlainObject(channelGroup)) {
+      return
+    }
+
+    mergeByShape(channelGroup, configData)
   }
 
   updateToolConfig(

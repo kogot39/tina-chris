@@ -10,6 +10,8 @@ import TTSProviderCards from '../view/cardsView/TTSProviderCards.vue'
 import ToolTypeCards from '../view/cardsView/ToolTypeCards.vue'
 import ToolProviderCards from '../view/cardsView/ToolProviderCards.vue'
 import ToolConfigForm from '../view/formsView/ToolConfigForm.vue'
+import ChannelProviderCards from '../view/cardsView/ChannelProviderCards.vue'
+import ChannelConfigForm from '../view/formsView/ChannelConfigForm.vue'
 
 import type { BreadcrumbItem } from '../../../shared'
 
@@ -87,6 +89,31 @@ const router = createRouter({
           { title: '设置', path: '/setting' },
           { title: '工具类型', path: '/setting/tools' },
           { title: '供应平台' },
+        ],
+      },
+    },
+    {
+      path: '/setting/channelprovider',
+      name: 'setting-channelprovider',
+      component: ChannelProviderCards,
+      meta: {
+        title: '聊天通道',
+        breadcrumbs: [
+          { title: '设置', path: '/setting' },
+          { title: '支持平台' },
+        ],
+      },
+    },
+    {
+      path: '/setting/channelprovider/:providerKey',
+      name: 'setting-channel-config',
+      component: ChannelConfigForm,
+      meta: {
+        title: '聊天通道',
+        breadcrumbs: [
+          { title: '设置', path: '/setting' },
+          { title: '支持平台', path: '/setting/channelprovider' },
+          { title: '聊天通道' },
         ],
       },
     },

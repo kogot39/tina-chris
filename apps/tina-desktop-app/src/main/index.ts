@@ -27,21 +27,25 @@ import {
 } from '@tina-chris/live2d-model/model-storage'
 import {
   AgentLoop,
+  ChannelManager,
   LLMManager,
   STTManager,
   TTSManager,
   createTTSVoiceCloneByKey,
   deleteTTSVoiceCloneByKey,
+  getAvailableChannels,
   getAvailableLLMs,
   getAvailableSTTs,
   getAvailableTTSs,
   getAvailableToolProviders,
   getAvailableToolTypes,
+  getChannelConfigFormByKey,
   getLLMConfigFormByKey,
   getSTTConfigFormByKey,
   getTTSConfigFormByKey,
   getTTSVoiceCloneFormByKey,
   getToolConfigFormByKey,
+  isSupportedChannelProvider,
   isSupportedToolProvider,
   isSupportedToolType,
   listTTSVoiceClonesByKey,
@@ -54,9 +58,10 @@ import {
   ConnectionStartMessage,
   InboundMessage,
   MessageBus,
-  OutboundMessage,
 } from '@tina-chris/tina-bus'
 import { getRootFilePath } from '@tina-chris/tina-util'
+
+import type { OutboundMessage } from '@tina-chris/tina-bus'
 
 // 注册自定义协议，确保其具有适当的权限以支持安全的资源加载
 protocol.registerSchemesAsPrivileged([
@@ -78,6 +83,7 @@ const runtimeConfig = loadConfig()
 const messageBus = new MessageBus()
 const sttManager = new STTManager(runtimeConfig, messageBus)
 const ttsManager = new TTSManager(runtimeConfig, messageBus)
+const channelManager = new ChannelManager(runtimeConfig, messageBus)
 const llmManager = new LLMManager(runtimeConfig)
 const agentLoop = new AgentLoop(runtimeConfig, messageBus, llmManager)
 // 简单判定并转换配置对象为纯数据结构
@@ -126,6 +132,19 @@ const getLlmConfigByProvider = (
   if (!llmGroup) return null
 
   const providerConfig = toPlainObject(llmGroup[providerKey])
+  if (!providerConfig) return null
+
+  return Object.fromEntries(Object.entries(providerConfig))
+}
+
+// 从配置中获取指定聊天通道提供商的配置项值
+const getChannelConfigByProvider = (
+  providerKey: string
+): Record<string, unknown> | null => {
+  const channelGroup = toPlainObject(runtimeConfig.channels)
+  if (!channelGroup) return null
+
+  const providerConfig = toPlainObject(channelGroup[providerKey])
   if (!providerConfig) return null
 
   return Object.fromEntries(Object.entries(providerConfig))
@@ -534,6 +553,100 @@ function createWindow(): void {
     }
   )
 
+  // 聊天通道相关的 IPC 处理器
+
+  // 获取可用的聊天通道提供商列表。
+  // Channel 是多开模型，因此这里直接携带每个 provider 的启用和连接状态，不再返回 current。
+  ipcMain.handle('channel:list-providers', async () => {
+    return getAvailableChannels(runtimeConfig, channelManager)
+  })
+  // 获取指定聊天通道的配置表单结构，供设置页动态渲染。
+  ipcMain.handle(
+    'channel:get-config-form',
+    async (_event, providerKey: string) => {
+      const schema = getChannelConfigFormByKey(providerKey)
+      if (!schema) {
+        throw new Error(`Unsupported channel provider: ${providerKey}`)
+      }
+
+      return schema
+    }
+  )
+  // 获取指定聊天通道的当前配置项值。
+  ipcMain.handle(
+    'channel:get-current-config',
+    async (_event, providerKey: string) => {
+      return getChannelConfigByProvider(providerKey)
+    }
+  )
+  // 保存通道配置只更新对应 provider 的配置。
+  // 如果该 provider 已启用，则立即重启连接；未启用时只持久化配置，等待卡片开关开启。
+  ipcMain.handle(
+    'channel:save-config',
+    async (_event, providerKey: string, values: Record<string, unknown>) => {
+      if (!isSupportedChannelProvider(providerKey)) {
+        throw new Error(`Unsupported channel provider: ${providerKey}`)
+      }
+
+      runtimeConfig.updateChannelConfig(providerKey, values)
+      saveConfig(runtimeConfig)
+      const providerConfig = runtimeConfig.getChannelConfig(providerKey)
+      const status = providerConfig?.enabled
+        ? await channelManager.restartChannel(providerKey)
+        : channelManager.getStatus(providerKey)
+
+      return {
+        providerKey,
+        status,
+      }
+    }
+  )
+  // 卡片开关控制 channel 的启用状态：先持久化用户选择，再尝试建立或关闭连接。
+  // 即使连接失败，enabled 仍然保留为用户刚才选择的值，方便用户修改凭证后刷新重连。
+  ipcMain.handle(
+    'channel:set-enabled',
+    async (_event, providerKey: string, enabled: boolean) => {
+      if (!isSupportedChannelProvider(providerKey)) {
+        throw new Error(`Unsupported channel provider: ${providerKey}`)
+      }
+
+      runtimeConfig.updateChannelConfig(providerKey, { enabled })
+      saveConfig(runtimeConfig)
+      const status = await channelManager.setChannelEnabled(
+        providerKey,
+        enabled
+      )
+
+      return {
+        providerKey,
+        enabled,
+        status,
+      }
+    }
+  )
+  // 设置页读取单个 provider 的连接状态，用于配置页底部展示和手动刷新。
+  ipcMain.handle('channel:get-status', async (_event, providerKey: string) => {
+    if (!isSupportedChannelProvider(providerKey)) {
+      throw new Error(`Unsupported channel provider: ${providerKey}`)
+    }
+
+    return channelManager.getStatus(providerKey)
+  })
+  ipcMain.handle('channel:start', async (_event, providerKey?: string) => {
+    if (providerKey && !isSupportedChannelProvider(providerKey)) {
+      throw new Error(`Unsupported channel provider: ${providerKey}`)
+    }
+
+    return channelManager.startChannel(providerKey)
+  })
+  ipcMain.handle('channel:stop', async (_event, providerKey?: string) => {
+    if (providerKey && !isSupportedChannelProvider(providerKey)) {
+      throw new Error(`Unsupported channel provider: ${providerKey}`)
+    }
+
+    return channelManager.stopChannel(providerKey)
+  })
+
   // 语音识别相关的 IPC 处理器
 
   // 获取可用的语音识别提供商列表
@@ -753,6 +866,11 @@ app.whenReady().then(async () => {
   // 启动消息总线分发循环
   messageBus.dispatchInbound()
   messageBus.dispatchOutbound()
+  // 聊天通道是远程入口，应用启动后按配置自动拉起所有已启用的 channel。
+  // 如果没有启用任何 provider，ChannelManager 会直接返回空结果，不会产生外部连接。
+  channelManager.startChannel().catch((error) => {
+    console.error('Failed to start channel manager:', error)
+  })
 
   // 启动应用前，初始化模型存储目录，将 public 中的默认模型复制到模型存储目录
   // 确保应用有一个可用的默认模型，并且用户的自定义模型能够被正确管理和访问
@@ -775,7 +893,7 @@ app.whenReady().then(async () => {
 
   createWindow()
 })
-// 在应用退出前确保 STT 和 TTS 管理器能够正确关闭所有会话并清理资源
+// 在应用退出前确保 STT、TTS 和聊天通道管理器能够正确关闭所有会话并清理资源
 app.on('before-quit', () => {
   // 停止消息总线的分发循环，确保在应用退出过程中不会有新的消息被处理，避免潜在的资源竞争和状态不一致问题
   messageBus.stopInboundDispatch()
@@ -783,4 +901,5 @@ app.on('before-quit', () => {
 
   sttManager.shutdown().catch(() => undefined)
   ttsManager.shutdown().catch(() => undefined)
+  channelManager.shutdown().catch(() => undefined)
 })

@@ -3,6 +3,7 @@ export type CardItem = {
   description: string
   buttonText: string
   path: string
+  state?: boolean
 }
 
 export type BreadcrumbItem = {

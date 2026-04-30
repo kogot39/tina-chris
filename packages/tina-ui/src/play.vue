@@ -1,11 +1,7 @@
 <template>
   <main class="h-full transition-colors duration-300">
     <TopBar icon="/favicon.ico" :items="breadcrumbItems" :can-back="false" />
-    <SettingCard
-      button-text="设置角色"
-      description="配置角色信息"
-      title="角色"
-    />
+    <CardsLayout :items="cards" show-switch-button @on-switch="handleSwitch" />
     <FieldsetLayout>
       <Form :legend="'角色信息'">
         <InputFieldItem
@@ -44,10 +40,10 @@
 </template>
 
 <script setup lang="ts">
-import { inject } from 'vue'
+import { inject, ref } from 'vue'
 import { TopBar } from './components/bars'
-import { SettingCard } from './components/cards'
 import {
+  CardsLayout,
   FieldsetLayout,
   Form,
   // IconButton,
@@ -74,6 +70,23 @@ const breadcrumbItems = [
   { title: 'About', path: '/about' },
   { title: 'Contact' },
 ]
+
+const cards = ref([
+  {
+    path: '/',
+    title: '聊天通道列表',
+    description: '查看和管理所有已配置的聊天通道',
+    buttonText: '查看',
+    state: true,
+  },
+])
+
+const handleSwitch = (path: string, checked: boolean) => {
+  // cards.value = cards.value.map((card) =>
+  //   card.path === path ? { ...card, state: checked } : card
+  // )
+  toast.info(`路径：${path}，状态：${checked ? '开启' : '关闭'}`)
+}
 </script>
 
 <style>

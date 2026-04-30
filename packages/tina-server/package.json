@@ -19,6 +19,7 @@
     "@tina-chris/tina-util": "workspace:*",
     "@types/ws": "catalog:",
     "openai": "^6.34.0",
+    "qq-official-bot": "^1.0.12",
     "ws": "catalog:"
   },
   "devDependencies": {

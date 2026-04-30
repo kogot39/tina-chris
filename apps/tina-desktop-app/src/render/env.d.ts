@@ -6,6 +6,10 @@ import type {
   ActiveModelInfo,
   AgentConfigData,
   AgentSaveResult,
+  ChannelEnabledResult,
+  ChannelProviderItem,
+  ChannelSaveResult,
+  ChannelStatus,
   LLMProviderItem,
   LLMSaveResult,
   STTProviderItem,
@@ -49,6 +53,22 @@ declare global {
     sendAudioInboundMessage: (audio: ArrayBuffer) => void
     sendAudioInboundMessageEnd: () => void
     sendTextInboundMessage: (content: string) => Promise<boolean>
+    listChannelProviders: () => Promise<ChannelProviderItem[]>
+    getChannelConfigForm: (providerKey: string) => Promise<DynamicFormSchema>
+    getCurrentChannelConfig: (
+      providerKey: string
+    ) => Promise<Record<string, unknown> | null>
+    saveChannelConfig: (
+      providerKey: string,
+      values: Record<string, unknown>
+    ) => Promise<ChannelSaveResult>
+    setChannelEnabled: (
+      providerKey: string,
+      enabled: boolean
+    ) => Promise<ChannelEnabledResult>
+    getChannelStatus: (providerKey: string) => Promise<ChannelStatus>
+    startChannel: (providerKey?: string) => Promise<ChannelStatus[]>
+    stopChannel: (providerKey?: string) => Promise<ChannelStatus[]>
     listSTTProviders: () => Promise<STTProviderItem[]>
     getCurrentSTTProvider: () => Promise<string>
     getSTTConfigForm: (providerKey: string) => Promise<DynamicFormSchema>
