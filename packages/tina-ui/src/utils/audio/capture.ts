@@ -32,9 +32,9 @@ export class AudioCapture {
     // TODO: 当前的识别效果不是很好需要进行调参，后续可以考虑将 VADConfig 作为参数传入构造函数，允许外部定制 VAD 行为
     // 初始化 VAD 配置
     this.vadConfig = {
-      positiveSpeechThreshold: 0.3,
-      negativeSpeechThreshold: 0.25,
-      minSpeechMs: 400,
+      positiveSpeechThreshold: 0.2,
+      negativeSpeechThreshold: 0.35,
+      minSpeechMs: 200,
       redemptionMs: 1400,
       preSpeechPadMs: 800,
     }

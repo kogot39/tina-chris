@@ -10,6 +10,8 @@ import {
 } from '@tina-chris/tina-util'
 import { SkillLoader } from './skills'
 
+import type { Context, Message, Tool } from '@mariozechner/pi-ai'
+
 import type { MemoryStore } from '@/memory'
 import type { AgentConfig } from '@/config'
 
@@ -23,8 +25,6 @@ export const getMissingPromptFiles = (workspacePath: string): string[] => {
   })
 }
 
-// TODO: 具体提示词内容可以再优化
-// 导出的工具函数用于前端构建时使用，确保用户配置的引导文件能够正确生成系统提示词并同步到工作空间目录中
 export const buildUserPromptDocument = (agentConfig: AgentConfig): string => {
   const { userProfile } = agentConfig
 
@@ -127,8 +127,9 @@ export const buildSoulPromptDocument = (agentConfig: AgentConfig): string => {
 export const syncWorkspacePromptFiles = (
   agentConfig: AgentConfig
 ): { workspacePath: string } => {
+  // Agent 配置表单保存后会同步生成这三份 Markdown。
+  // 后续 ContextBuilder 只读取文件，避免运行时上下文构建再依赖前端表单结构。
   const workspacePath = resolveWorkspacePath(agentConfig.workspace)
-  // 确保工作空间目录存在，并将用户配置的引导内容写入对应的文件中，覆盖原有内容
   fs.mkdirSync(workspacePath, { recursive: true })
   fs.writeFileSync(
     path.join(workspacePath, 'USER.md'),
@@ -157,83 +158,40 @@ export class ContextBuilder {
     private memoryStore: MemoryStore,
     private skills: SkillLoader
   ) {
-    // 检查提示词文件是否存在，如果缺失则抛出错误，确保系统提示词能够正确构建
     getMissingPromptFiles(workspacePath).forEach((filename) => {
       throw new Error(
         `Missing required prompt file: ${filename} in workspace: ${workspacePath}`
       )
     })
-    // 初始化 skills 加载器和系统提示词
     this.systemPrompt = this.buildSystemPrompt()
   }
 
-  buildMessages(
-    history: Array<Record<string, any>>,
-    currentMessage: string,
+  buildContext(
+    history: Message[],
+    currentMessage: Message,
     options: {
-      // 用于读取指定会话的记忆上下文
       sessionKey: string
-      // 额外添加提示词
-      extraSystemPrompt?: string
+      tools: Tool[]
     }
-  ): Array<Record<string, any>> {
-    // systemPrompt 是初始化时构建的稳定部分，memoryContext 是每轮动态读取的部分
-    // 这样 Agent 保存记忆或摘要器更新会话摘要后，下一轮对话就能立即读到新内容
+  ): Context {
+    // pi-ai Context 只需要 systemPrompt、messages、tools 三块。
+    // systemPrompt 合并静态身份/技能和动态 memory 摘要；messages 由 session
+    // 展示消息和最小 context metadata 重建，当前用户消息追加在最后。
     const systemParts = [
       this.systemPrompt,
-      // 记忆上下文放在系统提示词里，确保模型每轮都能看到最新的记忆内容，辅助回答和决策
       this.memoryStore.buildMemoryContext(options.sessionKey),
-      options.extraSystemPrompt || '',
     ].filter((part) => part.trim().length > 0)
 
-    return [
-      {
-        role: 'system',
-        content: systemParts.join('\n\n---\n\n'),
-      },
-      ...history,
-      {
-        role: 'user',
-        content: currentMessage,
-      },
-    ]
-  }
-
-  // 添加工具调用信息到上下文
-  addAssistantMessage(
-    messages: Array<Record<string, any>>,
-    content: string,
-    toolCalls?: Array<Record<string, any>>
-  ): Array<Record<string, any>> {
-    const message: Record<string, any> = {
-      role: 'assistant',
-      content,
+    return {
+      systemPrompt: systemParts.join('\n\n---\n\n'),
+      messages: [...history, currentMessage],
+      tools: options.tools,
     }
-
-    if (toolCalls && toolCalls.length > 0) {
-      message.tool_calls = toolCalls
-    }
-
-    messages.push(message)
-    return messages
   }
-  // 添加工具调用结果到上下文
-  addToolResult(
-    messages: Array<Record<string, any>>,
-    toolCallId: string,
-    toolName: string,
-    result: string
-  ): Array<Record<string, any>> {
-    messages.push({
-      role: 'tool',
-      tool_call_id: toolCallId,
-      name: toolName,
-      content: result,
-    })
-    return messages
-  }
-  // 构建系统提示词，包含身份信息、引导原则、技能摘要等固定内容
+
   private buildSystemPrompt(): string {
+    // systemPrompt 在 ContextBuilder 初始化时构建一次。Agent 配置或 workspace
+    // 更新后会重新 initialize AgentLoop，从而重新创建 ContextBuilder。
     const parts = [
       this.buildIdentity(),
       this.loadBootstrapFiles(),
@@ -245,13 +203,12 @@ export class ContextBuilder {
 
   private buildIdentity(): string {
     const now = new Date().toLocaleString()
-    // 固定的基本消息，不允许用户自定义，确保模型每次都能正确理解自己的身份和能力范围
     return [
       '# System Instructions',
       '',
       'You are a desktop AI assistant. You answer directly unless a tool is needed.',
       'You need to obey the settings and guidance provided by the user.',
-      'You can read files inside the configured workspace, list workspace directories, search the web when configured, fetch web pages, manage memory through dedicated memory tools, spawn safe subagents for independent research tasks, and send messages back to the current chat.',
+      'You can read files inside the configured workspace, list workspace directories, search the web when configured, fetch web pages, manage long-term memory through dedicated memory tools, and send messages back to the current chat.',
       '',
       '## Current Time',
       now,
@@ -261,23 +218,20 @@ export class ContextBuilder {
       '',
       '## Memory Paths',
       `Long-term memory: ${path.join(this.workspacePath, 'memory', 'MEMORY.md')}`,
-      `Daily memory: ${path.join(this.workspacePath, 'memory', 'YYYY-MM-DD.md')}`,
       `Session summaries: ${path.join(this.workspacePath, 'memory', 'sessions')}`,
       '',
       'Important rules:',
       '- Use tools only when they help answer or complete the user request.',
-      '- Use memory tools for durable facts, user preferences, project context, and useful daily notes.',
-      '- Use readMemory when recalling a specific date, multiple dates, or the current session summary would help.',
-      '- Use spawnSubagent only for independent work that can run in the background with safe read/search tools.',
+      '- Use the injected memory context as an index: it contains the long-term memory directory and current session summary, not full long-term memory bodies.',
+      '- Use read_memory with a directory path when a long-term memory entry body would help.',
+      '- Use update_memory to create, revise, rename, or remove precise long-term memory nodes.',
       '- Never claim you changed files unless a write-capable tool exists and succeeded.',
       '- If required context is missing, explain what is missing clearly.',
     ].join('\n')
   }
 
-  // 加载用户自定义的引导文件，构建成系统提示词的一部分
   private loadBootstrapFiles(): string {
     const parts: string[] = []
-    // 配置时已经按照格式配置好了引导文件内容，这里直接读取即可，不需要再进行额外的格式化处理
     for (const filename of BOOTSTRAP_FILES) {
       const filePath = path.join(this.workspacePath, filename)
       if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
@@ -286,6 +240,8 @@ export class ContextBuilder {
 
       const content = fs.readFileSync(filePath, 'utf-8').trim()
       if (content) {
+        // WORKSPACE 中的 TOOLS.md 仍允许用户补充业务说明，但真正工具 schema
+        // 以 Context.tools 中的 pi-ai Tool 定义为准。
         parts.push(`## ${filename}\n\n${content}`)
       }
     }
@@ -293,7 +249,6 @@ export class ContextBuilder {
     return parts.join('\n\n')
   }
 
-  // 构建 skill 相关的系统提示词内容，包括始终可用技能和技能摘要
   private buildSkillsContext(): string {
     const alwaysSkills = this.skills.getAlwaysSkills()
     const alwaysContent = this.skills.loadSkillsForContext(alwaysSkills)

@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { Type } from '@mariozechner/pi-ai'
 import { Tool, type ToolParameters } from './base'
 import { resolveWorkspaceChildPath } from './path'
 
@@ -18,16 +19,11 @@ export class ReadFileTool extends Tool {
   }
 
   get parameters(): ToolParameters {
-    return {
-      type: 'object',
-      properties: {
-        path: {
-          type: 'string',
-          description: 'Workspace-relative file path to read.',
-        },
-      },
-      required: ['path'],
-    }
+    return Type.Object({
+      path: Type.String({
+        description: 'Workspace-relative file path to read.',
+      }),
+    })
   }
 
   async execute(params: Record<string, unknown>): Promise<string> {
@@ -63,16 +59,11 @@ export class ListDirTool extends Tool {
   }
 
   get parameters(): ToolParameters {
-    return {
-      type: 'object',
-      properties: {
-        path: {
-          type: 'string',
-          description: 'Workspace-relative directory path to list.',
-        },
-      },
-      required: ['path'],
-    }
+    return Type.Object({
+      path: Type.String({
+        description: 'Workspace-relative directory path to list.',
+      }),
+    })
   }
 
   async execute(params: Record<string, unknown>): Promise<string> {

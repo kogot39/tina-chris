@@ -10,10 +10,12 @@ import type {
   ChannelProviderItem,
   ChannelSaveResult,
   ChannelStatus,
+  GetSessionMessagesInput,
   LLMProviderItem,
   LLMSaveResult,
   STTProviderItem,
   STTSaveResult,
+  SessionMessagesPage,
   StoredModelItem,
   TTSProviderItem,
   TTSSaveResult,
@@ -53,6 +55,10 @@ declare global {
     sendAudioInboundMessage: (audio: ArrayBuffer) => void
     sendAudioInboundMessageEnd: () => void
     sendTextInboundMessage: (content: string) => Promise<boolean>
+    abortAgentResponse: () => Promise<boolean>
+    getSessionMessages: (
+      input?: GetSessionMessagesInput
+    ) => Promise<SessionMessagesPage>
     listChannelProviders: () => Promise<ChannelProviderItem[]>
     getChannelConfigForm: (providerKey: string) => Promise<DynamicFormSchema>
     getCurrentChannelConfig: (

@@ -119,21 +119,49 @@ const ensureStoreState = async (modelRootDir: string) => {
 }
 
 /**
- * 确保默认模型目录存在。
- * 仅在 default 目录缺失时从内置资源复制，避免每次启动覆盖用户本地文件。
+ * 确保默认模型目录存在且入口文件可用。
+ *
+ * 这里不能只判断 default 目录是否存在：早期打包配置如果没有把 public 正确解包，
+ * 可能会在用户目录留下一个不完整的 default 目录。后续版本启动时需要能自动补齐资源，
+ * 否则 models.json 中虽然有默认模型记录，实际 tina-model:// 协议仍然会 404。
  */
 const ensureDefaultModelExists = async (
   modelRootDir: string,
-  defaultModelSourceDir: string
+  defaultModelSourceDir: string,
+  defaultModelEntry: string
 ) => {
   const defaultTargetDir = modelFolderPath(modelRootDir, DEFAULT_MODEL_ID)
+  const defaultTargetEntry = join(defaultTargetDir, defaultModelEntry)
+
   try {
-    const current = await stat(defaultTargetDir)
-    if (current.isDirectory()) {
+    const currentEntry = await stat(defaultTargetEntry)
+    if (currentEntry.isFile()) {
       return
     }
   } catch {
-    // Missing default directory should be initialized by copying builtin assets.
+    // 缺少入口文件时继续走复制流程，补齐安装包内置的默认模型资源。
+  }
+
+  const defaultSourceEntry = join(defaultModelSourceDir, defaultModelEntry)
+  try {
+    const sourceEntry = await stat(defaultSourceEntry)
+    if (!sourceEntry.isFile()) {
+      throw new Error('default model entry is not a file')
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `Default model asset is missing: ${defaultSourceEntry}. ${reason}`
+    )
+  }
+
+  try {
+    const currentTarget = await stat(defaultTargetDir)
+    if (!currentTarget.isDirectory()) {
+      await rm(defaultTargetDir, { recursive: true, force: true })
+    }
+  } catch {
+    // 目标目录不存在是初始化默认模型时的正常路径。
   }
 
   await copyDirectory(defaultModelSourceDir, defaultTargetDir)
@@ -222,7 +250,11 @@ export const ensureModelStoreInitialized = async ({
   defaultModelEntry = DEFAULT_MODEL_ENTRY,
 }: EnsureModelStoreOptions): Promise<ModelStoreState> => {
   await ensureDirectory(modelRootDir)
-  await ensureDefaultModelExists(modelRootDir, defaultModelSourceDir)
+  await ensureDefaultModelExists(
+    modelRootDir,
+    defaultModelSourceDir,
+    defaultModelEntry
+  )
 
   const state = await ensureStoreState(modelRootDir)
   upsertDefaultModel(state, defaultModelEntry)

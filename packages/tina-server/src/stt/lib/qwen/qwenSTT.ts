@@ -1,11 +1,11 @@
 import {
+  BaseSTT,
   type STTErrorHandler,
   type STTTranscriptHandler,
-  BaseSTT,
 } from '../base'
-import type { DynamicFormSchema } from '@tina-chris/tina-ui'
 import WebSocket from 'ws'
 
+import type { DynamicFormSchema } from '@tina-chris/tina-ui'
 import type {
   QwenClientEvent,
   QwenInputAudioFormat,
@@ -112,7 +112,7 @@ export function getQwenConfigForm(): DynamicFormSchema {
           type: 'number',
           min: 200,
           step: 100,
-          max: 6000
+          max: 6000,
         },
       },
     ],
@@ -130,7 +130,7 @@ export class QwenSTT extends BaseSTT {
   private model: string
   private inputAudioFormat: QwenInputAudioFormat
   // 先配合前端输入音频的设置统一采样率
-  private sampleRate: 16000 = 16000
+  private readonly sampleRate = 16000
   private language: QwenLanguage
   private turnDetection: QwenTurnDetection
 

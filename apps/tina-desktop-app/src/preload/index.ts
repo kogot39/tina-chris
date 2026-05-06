@@ -9,10 +9,12 @@ import type {
   ChannelProviderItem,
   ChannelSaveResult,
   ChannelStatus,
+  GetSessionMessagesInput,
   LLMProviderItem,
   LLMSaveResult,
   STTProviderItem,
   STTSaveResult,
+  SessionMessagesPage,
   StoredModelItem,
   TTSProviderItem,
   TTSSaveResult,
@@ -86,6 +88,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendAudioInboundMessageEnd: () => ipcRenderer.invoke('bus:send-inbound-end'),
   sendTextInboundMessage: (content: string) =>
     ipcRenderer.invoke('bus:send-inbound-text', content) as Promise<boolean>,
+  abortAgentResponse: () =>
+    ipcRenderer.invoke('bus:abort-agent-response') as Promise<boolean>,
+  // Session 历史读取。渲染进程只拿展示消息结构，context 重建仍留在 server/session 内部。
+  getSessionMessages: (input?: GetSessionMessagesInput) =>
+    ipcRenderer.invoke(
+      'session:get-messages',
+      input
+    ) as Promise<SessionMessagesPage>,
   // 聊天通道相关的 API
   listChannelProviders: () =>
     ipcRenderer.invoke('channel:list-providers') as Promise<

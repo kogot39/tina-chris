@@ -1,33 +1,43 @@
 <template>
-  <div class="w-full fadeIn">
-    <!-- 使用动态解析出的组件 -->
+  <div class="w-full fadeIn py-1">
     <component
       :is="dynamicComponent"
       v-if="dynamicComponent"
-      :message="props.message"
+      :message="message"
     />
-    <div v-else class="text-sm text-gray-400 p-2">[暂不支持显示该类型消息]</div>
+    <div v-else class="alert alert-warning alert-soft text-sm">
+      暂不支持显示该类型消息
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import AgentMessage from './AgentMessage.vue'
+import CaptureAudioMessage from './CaptureAudioMessage.vue'
 import HumanMessage from './HumanMessage.vue'
+import ReasoningContentMessage from './ReasoningContentMessage.vue'
+import ToolMessage from './ToolMessage.vue'
 
 import type { Message } from '../../types'
+import type { Component } from 'vue'
 
 const props = defineProps<{
   message: Message
 }>()
 
-// 动态计算当前消息所对应的组件
-const dynamicComponent = computed(() => {
-  switch (props.message.role) {
-    case 'agent':
-      return AgentMessage
-    case 'human':
+const dynamicComponent = computed<Component | null>(() => {
+  switch (props.message.type) {
+    case 'user':
       return HumanMessage
+    case 'assistant':
+      return AgentMessage
+    case 'speech_text':
+      return CaptureAudioMessage
+    case 'reasoning':
+      return ReasoningContentMessage
+    case 'tool':
+      return ToolMessage
     default:
       return null
   }

@@ -13,16 +13,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = withDefaults(
   defineProps<{
     needActiveColor?: boolean
     tooltip?: string
+    disabled?: boolean
   }>(),
   {
     needActiveColor: true,
     tooltip: '',
+    disabled: false,
   }
 )
 
@@ -37,6 +39,7 @@ const activeClass = computed(() =>
 )
 
 const toggleActive = () => {
+  if (props.disabled) return
   isActive.value = !isActive.value
   if (isActive.value) {
     emit('afterActive')
@@ -44,6 +47,17 @@ const toggleActive = () => {
     emit('afterDeactive')
   }
 }
+
+watch(
+  () => props.disabled,
+  (newVal) => {
+    if (newVal) {
+      isActive.value = false
+      // 组件被禁用时，强制取消激活状态，并触发 afterDeactive 事件
+      emit('afterDeactive')
+    }
+  }
+)
 
 defineExpose({
   toggleActive,

@@ -29,11 +29,20 @@ export type SoulPromptData = {
   additionalNotes: string
 }
 
+export type AgentReasoningEffort =
+  | 'off'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+
 export type AgentConfigData = {
   workspace: string
   model: string
-  maxTokens: number
+  maxTokens: number | null
   temperature: number
+  reasoningEffort: AgentReasoningEffort
   maxToolInteractions: number
   userProfile: AgentUserProfileData
   agentPrompt: AgentPromptData
@@ -47,8 +56,8 @@ export type AgentSaveResult = {
 
 // Keep renderer defaults next to the DTO definition so the settings page and
 // future consumers stay aligned with the server-side config schema.
-export const DEFAULT_MAX_TOKENS = 8192
 export const DEFAULT_TEMPERATURE = 0.7
+export const DEFAULT_REASONING_EFFORT: AgentReasoningEffort = 'off'
 export const DEFAULT_MAX_TOOL_INTERACTIONS = 20
 
 export const createEmptyAgentUserProfile = (): AgentUserProfileData => ({
@@ -81,8 +90,9 @@ export const createEmptySoulPrompt = (): SoulPromptData => ({
 export const createDefaultAgentConfig = (): AgentConfigData => ({
   workspace: '',
   model: '',
-  maxTokens: DEFAULT_MAX_TOKENS,
+  maxTokens: null,
   temperature: DEFAULT_TEMPERATURE,
+  reasoningEffort: DEFAULT_REASONING_EFFORT,
   maxToolInteractions: DEFAULT_MAX_TOOL_INTERACTIONS,
   userProfile: createEmptyAgentUserProfile(),
   agentPrompt: createEmptyAgentPrompt(),

@@ -1,48 +1,71 @@
 import fs from 'fs'
 import path from 'path'
-import {
-  addDays,
-  formatLocalDate,
-  formatLocalTimestamp,
-  parseDate,
-  safeFilename,
-} from '@tina-chris/tina-util'
+import { logger, safeFilename } from '@tina-chris/tina-util'
 
 // MemoryStore 是 Agent 记忆模块的唯一文件读写入口。
-// 这里刻意不复用通用文件工具，而是把所有路径固定在 workspace/memory 下，
-// 避免模型通过 memory 工具读取或写入任意工作区文件。
+// 所有长期记忆和会话摘要都固定在 workspace/memory 下，避免模型通过记忆工具触达任意文件。
 
-// 多天记忆一次性读取会直接进入模型上下文，因此这里保守限制天数，
-// 防止用户一句“回忆全部历史”把上下文窗口撑爆。
-export const MAX_MEMORY_DAYS_PER_READ = 14
+const MEMORY_TITLE = '# Long-term Memory'
+const DIRECTORY_TITLE = 'Directory'
+const EMPTY_DIRECTORY = 'No long-term memory entries.'
+const MAX_MEMORY_PATH_DEPTH = 5
+const DAILY_MEMORY_FILE_PATTERN = /^\d{4}-\d{2}-\d{2}\.md$/
 
-export type MemoryScope =
-  | 'long_term'
-  | 'today'
-  | 'date'
-  | 'dates'
-  | 'range'
-  | 'session_summary'
+export type MemoryUpdateOperation = 'set' | 'append' | 'delete' | 'rename'
 
-// 对外暴露的日期校验函数统一返回规范日期字符串，供工具层复用
-export const assertMemoryDate = (value: string): string => {
-  const date = parseDate(value)
-  if (!date) {
-    throw new Error(`Invalid date '${value}'. Expected YYYY-MM-DD.`)
-  }
-  return formatLocalDate(date)
+export type MemoryUpdateInput = {
+  operation: MemoryUpdateOperation
+  path: string[]
+  content?: string
+  title?: string
 }
 
-// 多日期输入可能包含重复或无序的日期，统一去重和排序后再处理
-const uniqueSortedDates = (dates: string[]): string[] => {
-  return Array.from(new Set(dates.map(assertMemoryDate))).sort()
+type MemoryNode = {
+  title: string
+  content: string
+  children: MemoryNode[]
 }
+
+const createRootNode = (): MemoryNode => ({
+  title: '',
+  content: '',
+  children: [],
+})
 
 // sessionKey 里通常包含 channel/chatId 等分隔符，不适合直接作为文件名。
 // 这里沿用 session 模块的 safeFilename 策略，保证摘要文件名稳定且跨平台可写。
 const safeSessionFilename = (sessionKey: string): string => {
-  const safeKey = safeFilename(sessionKey.replace(/:/g, '_'))
-  return safeKey
+  return safeFilename(sessionKey.replace(/:/g, '_'))
+}
+
+const isHeadingLine = (
+  line: string
+): { level: number; title: string } | null => {
+  const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line)
+  if (!match) {
+    return null
+  }
+
+  return {
+    level: match[1].length,
+    title: match[2].replace(/\s+#+$/, '').trim(),
+  }
+}
+
+const normalizeLineEndings = (content: string): string => {
+  return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+}
+
+const slugifyHeading = (title: string): string => {
+  const slug = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}\s-]/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+
+  return slug || 'memory'
 }
 
 export class MemoryStore {
@@ -51,99 +74,89 @@ export class MemoryStore {
   private readonly sessionsDir: string
 
   constructor(workspacePath: string) {
-    // 所有记忆都收束到 workspace/memory
-    // 初始化时直接创建目录，后续工具读写就不需要重复判断目录是否存在
     this.memoryDir = path.join(workspacePath, 'memory')
     this.longTermFile = path.join(this.memoryDir, 'MEMORY.md')
     this.sessionsDir = path.join(this.memoryDir, 'sessions')
     fs.mkdirSync(this.memoryDir, { recursive: true })
     fs.mkdirSync(this.sessionsDir, { recursive: true })
+    this.cleanupDailyMemoryFiles()
+    this.ensureLongTermFile()
   }
 
-  get today(): string {
-    // 记忆文件按本地日期命名，而不是 UTC 日期。
-    // 桌面助手的交互是面向用户本地时间的，按本地日期拆 daily memory 更符合直觉。
-    return formatLocalDate()
+  readLongTermDirectory(): string {
+    const root = this.parseLongTermMemory()
+    return this.renderDirectory(root)
   }
 
-  // 长期记忆用于保存跨会话仍然重要的事实，比如用户偏好、长期项目背景和稳定约定。
-  readLongTerm(): string {
-    return this.readFileIfExists(this.longTermFile)
+  readLongTermMemory(pathSegments: string[] = [], recursive = false): string {
+    const memoryPath = this.normalizeMemoryPath(pathSegments, {
+      allowEmpty: true,
+    })
+    if (memoryPath.length === 0) {
+      return this.readLongTermDirectory()
+    }
+
+    const root = this.parseLongTermMemory()
+    const node = this.findRequiredNode(root, memoryPath)
+    if (recursive) {
+      return this.renderNode(node, 1)
+    }
+
+    const content = node.content.trim()
+    return content || `No content at memory path: ${memoryPath.join(' / ')}.`
   }
 
-  appendLongTerm(content: string): void {
-    const normalized = content.trim()
-    if (!normalized) {
-      throw new Error('memory content is required.')
+  updateLongTermMemory(input: MemoryUpdateInput): void {
+    const operation = input.operation
+    const memoryPath = this.normalizeMemoryPath(input.path)
+    const root = this.parseLongTermMemory()
+
+    if (operation === 'set') {
+      const node = this.ensureNode(root, memoryPath)
+      node.content = this.normalizeContent(input.content)
+      this.writeLongTermMemory(root)
+      return
     }
 
-    if (!fs.existsSync(this.longTermFile)) {
-      // 首次写入时给 MEMORY.md 一个固定标题，方便用户直接打开阅读和手动编辑。
-      fs.writeFileSync(this.longTermFile, '# Long-term Memory\n', 'utf-8')
+    if (operation === 'append') {
+      const node = this.ensureNode(root, memoryPath)
+      const content = this.normalizeContent(input.content)
+      node.content = [node.content.trim(), content]
+        .filter((part) => part.length > 0)
+        .join('\n\n')
+      this.writeLongTermMemory(root)
+      return
     }
 
-    this.appendBlock(this.longTermFile, formatMemoryEntry(normalized))
-  }
-
-  readDaily(date = this.today): string {
-    const normalizedDate = assertMemoryDate(date)
-    return this.readFileIfExists(this.getDailyFile(normalizedDate))
-  }
-
-  // 每日记忆用于记录当天发生的事情或临时上下文。
-  // 它比长期记忆更“新鲜”，但不会默认把多天历史全部塞进每轮上下文。
-  appendDaily(content: string, date = this.today): void {
-    const normalized = content.trim()
-    if (!normalized) {
-      throw new Error('daily memory content is required.')
+    if (operation === 'delete') {
+      this.deleteNode(root, memoryPath)
+      this.writeLongTermMemory(root)
+      return
     }
 
-    const normalizedDate = assertMemoryDate(date)
-    const filePath = this.getDailyFile(normalizedDate)
-    if (!fs.existsSync(filePath)) {
-      // daily 文件按日期分文件保存，标题也使用同一个日期，方便人工浏览。
-      fs.writeFileSync(filePath, `# ${normalizedDate}\n`, 'utf-8')
+    if (operation === 'rename') {
+      const nextTitle = this.normalizeTitle(input.title)
+      const { parent, node } = this.findNodeWithParent(root, memoryPath)
+      if (
+        parent.children.some(
+          (child) => child !== node && child.title === nextTitle
+        )
+      ) {
+        throw new Error(
+          `Memory path already exists: ${[
+            ...memoryPath.slice(0, -1),
+            nextTitle,
+          ].join(' / ')}.`
+        )
+      }
+
+      node.title = nextTitle
+      this.writeLongTermMemory(root)
+      return
     }
 
-    this.appendBlock(filePath, formatMemoryEntry(normalized))
-  }
-
-  readDailyDates(dates: string[]): Array<{ date: string; content: string }> {
-    // 多日期读取先去重并排序，保证输出顺序稳定，模型回忆时也更容易按时间理解。
-    const normalizedDates = uniqueSortedDates(dates)
-    this.assertDateReadLimit(normalizedDates.length)
-
-    return normalizedDates.map((date) => ({
-      date,
-      content: this.readDaily(date),
-    }))
-  }
-
-  readDailyRange(
-    startDate: string,
-    endDate: string
-  ): Array<{ date: string; content: string }> {
-    // range 读取是给 Agent “回忆一段时间”用的，所以使用闭区间。
-    // 日期合法性和上限都在 Store 层处理，工具层只负责参数转发和错误展示。
-    const start = parseDate(assertMemoryDate(startDate))
-    const end = parseDate(assertMemoryDate(endDate))
-    if (!start || !end) {
-      throw new Error('Invalid date range.')
-    }
-    if (start.getTime() > end.getTime()) {
-      throw new Error('startDate must be earlier than or equal to endDate.')
-    }
-
-    const dates: string[] = []
-    for (let current = start; current <= end; current = addDays(current, 1)) {
-      dates.push(formatLocalDate(current))
-    }
-
-    this.assertDateReadLimit(dates.length)
-    return dates.map((date) => ({
-      date,
-      content: this.readDaily(date),
-    }))
+    const unsupported: never = operation
+    throw new Error(`Unsupported memory operation: ${unsupported}.`)
   }
 
   readSessionSummary(sessionKey: string): string {
@@ -151,7 +164,6 @@ export class MemoryStore {
   }
 
   // 会话摘要由 AgentLoop 的摘要器自动维护，不通过普通工具直接写入。
-  // 它只记录当前会话的压缩上下文，避免长会话每轮都带完整历史。
   writeSessionSummary(sessionKey: string, content: string): void {
     const normalized = content.trim()
     const filePath = this.getSessionSummaryFile(sessionKey)
@@ -160,42 +172,298 @@ export class MemoryStore {
   }
 
   buildMemoryContext(sessionKey: string): string {
-    // 每轮默认注入三层：长期记忆、当天记忆、当前会话摘要。
-    // 指定日期/多日期/范围回忆不默认注入，而是通过 readMemory 工具按需读取。
-    const parts: string[] = []
-    const longTerm = this.readLongTerm().trim()
-    const today = this.readDaily().trim()
+    const parts: string[] = [
+      `## Long-term Memory Directory\n\n${this.readLongTermDirectory()}`,
+    ]
     const sessionSummary = this.readSessionSummary(sessionKey).trim()
 
-    if (longTerm) {
-      parts.push(`## Long-term Memory\n\n${longTerm}`)
-    }
-    if (today) {
-      parts.push(`## Today's Memory (${this.today})\n\n${today}`)
-    }
     if (sessionSummary) {
       parts.push(`## Current Session Summary\n\n${sessionSummary}`)
     }
 
-    return parts.length > 0 ? `# Memory\n\n${parts.join('\n\n')}` : ''
+    return `# Memory\n\n${parts.join('\n\n')}`
   }
 
-  formatDailyMemories(items: Array<{ date: string; content: string }>): string {
-    // 多天读取输出为 Markdown 分段，方便模型明确区分每天的内容。
-    // 缺失的日期也显式返回，避免模型误以为读取失败或遗漏。
-    return items
-      .map(({ date, content }) => {
-        const normalized = content.trim()
-        if (!normalized) {
-          return `## ${date}\n\nError: No memory found for ${date}.`
+  private ensureLongTermFile(): void {
+    if (fs.existsSync(this.longTermFile)) {
+      return
+    }
+
+    fs.writeFileSync(
+      this.longTermFile,
+      `${MEMORY_TITLE}\n\n## ${DIRECTORY_TITLE}\n\n${EMPTY_DIRECTORY}\n`,
+      'utf-8'
+    )
+  }
+
+  private parseLongTermMemory(): MemoryNode {
+    this.ensureLongTermFile()
+
+    const root = createRootNode()
+    const stack: Array<{ level: number; node: MemoryNode }> = [
+      { level: 1, node: root },
+    ]
+    const lines = normalizeLineEndings(
+      fs.readFileSync(this.longTermFile, 'utf-8')
+    ).split('\n')
+
+    let currentNode: MemoryNode | null = null
+    let currentContent: string[] = []
+    let inDirectory = false
+
+    const flushCurrentContent = () => {
+      if (!currentNode) {
+        currentContent = []
+        return
+      }
+
+      currentNode.content = currentContent.join('\n').trim()
+      currentContent = []
+    }
+
+    for (const line of lines) {
+      const heading = isHeadingLine(line)
+      if (!heading) {
+        if (!inDirectory && currentNode) {
+          currentContent.push(line)
         }
-        return `## ${date}\n\n${normalized}`
-      })
-      .join('\n\n---\n\n')
+        continue
+      }
+
+      const titleKey = heading.title.toLowerCase()
+      if (heading.level === 1 && titleKey === 'long-term memory') {
+        flushCurrentContent()
+        currentNode = null
+        inDirectory = false
+        continue
+      }
+
+      if (heading.level === 2 && titleKey === DIRECTORY_TITLE.toLowerCase()) {
+        flushCurrentContent()
+        currentNode = null
+        inDirectory = true
+        continue
+      }
+
+      if (inDirectory && heading.level > 2) {
+        continue
+      }
+
+      inDirectory = false
+      flushCurrentContent()
+
+      const node: MemoryNode = {
+        title: heading.title,
+        content: '',
+        children: [],
+      }
+
+      while (
+        stack.length > 1 &&
+        stack[stack.length - 1].level >= heading.level
+      ) {
+        stack.pop()
+      }
+
+      stack[stack.length - 1].node.children.push(node)
+      stack.push({ level: heading.level, node })
+      currentNode = node
+    }
+
+    flushCurrentContent()
+    return root
   }
 
-  private getDailyFile(date: string): string {
-    return path.join(this.memoryDir, `${assertMemoryDate(date)}.md`)
+  private writeLongTermMemory(root: MemoryNode): void {
+    fs.writeFileSync(
+      this.longTermFile,
+      this.renderLongTermMemory(root),
+      'utf-8'
+    )
+  }
+
+  private renderLongTermMemory(root: MemoryNode): string {
+    const sections = [
+      MEMORY_TITLE,
+      '',
+      `## ${DIRECTORY_TITLE}`,
+      '',
+      this.renderDirectory(root),
+    ]
+    const nodes = root.children
+      .map((node) => this.renderNode(node, 2))
+      .filter((content) => content.trim().length > 0)
+      .join('\n\n')
+
+    if (nodes) {
+      sections.push('', nodes)
+    }
+
+    return `${sections.join('\n').trimEnd()}\n`
+  }
+
+  private renderDirectory(root: MemoryNode): string {
+    if (root.children.length === 0) {
+      return EMPTY_DIRECTORY
+    }
+
+    const slugCounts = new Map<string, number>()
+    const lines: string[] = []
+    const walk = (node: MemoryNode, depth: number) => {
+      const baseSlug = slugifyHeading(node.title)
+      const count = slugCounts.get(baseSlug) ?? 0
+      slugCounts.set(baseSlug, count + 1)
+      const slug = count === 0 ? baseSlug : `${baseSlug}-${count}`
+      const indent = '  '.repeat(depth)
+      lines.push(`${indent}- [${node.title}](#${slug})`)
+
+      for (const child of node.children) {
+        walk(child, depth + 1)
+      }
+    }
+
+    for (const child of root.children) {
+      walk(child, 0)
+    }
+
+    return lines.join('\n')
+  }
+
+  private renderNode(node: MemoryNode, level: number): string {
+    const headingLevel = Math.min(level, 6)
+    const parts = [`${'#'.repeat(headingLevel)} ${node.title}`]
+    const content = node.content.trim()
+    if (content) {
+      parts.push('', content)
+    }
+
+    for (const child of node.children) {
+      parts.push('', this.renderNode(child, headingLevel + 1))
+    }
+
+    return parts.join('\n').trimEnd()
+  }
+
+  private ensureNode(root: MemoryNode, pathSegments: string[]): MemoryNode {
+    let parent = root
+
+    for (const title of pathSegments) {
+      const existing = this.findChild(parent, title)
+      if (existing) {
+        parent = existing
+        continue
+      }
+
+      const node: MemoryNode = { title, content: '', children: [] }
+      parent.children.push(node)
+      parent = node
+    }
+
+    return parent
+  }
+
+  private findRequiredNode(
+    root: MemoryNode,
+    pathSegments: string[]
+  ): MemoryNode {
+    return this.findNodeWithParent(root, pathSegments).node
+  }
+
+  private findNodeWithParent(
+    root: MemoryNode,
+    pathSegments: string[]
+  ): { parent: MemoryNode; node: MemoryNode } {
+    let parent = root
+    let node: MemoryNode | null = null
+
+    for (const title of pathSegments) {
+      node = this.findChild(parent, title)
+      if (!node) {
+        throw new Error(`Memory path not found: ${pathSegments.join(' / ')}.`)
+      }
+
+      parent = node
+    }
+
+    if (!node) {
+      throw new Error('Memory path is required.')
+    }
+
+    const parentPath = pathSegments.slice(0, -1)
+    const actualParent =
+      parentPath.length === 0 ? root : this.findRequiredNode(root, parentPath)
+    return { parent: actualParent, node }
+  }
+
+  private findChild(parent: MemoryNode, title: string): MemoryNode | null {
+    const matches = parent.children.filter((child) => child.title === title)
+    if (matches.length > 1) {
+      throw new Error(`Memory path is ambiguous at '${title}'.`)
+    }
+
+    return matches[0] ?? null
+  }
+
+  private deleteNode(root: MemoryNode, pathSegments: string[]): void {
+    const { parent, node } = this.findNodeWithParent(root, pathSegments)
+    parent.children = parent.children.filter((child) => child !== node)
+  }
+
+  private normalizeMemoryPath(
+    value: string[] | undefined,
+    options: { allowEmpty?: boolean } = {}
+  ): string[] {
+    const pathSegments = value ?? []
+    if (!Array.isArray(pathSegments)) {
+      throw new TypeError('Memory path must be an array of strings.')
+    }
+
+    const normalized = pathSegments.map((item) => this.normalizeTitle(item))
+    if (!options.allowEmpty && normalized.length === 0) {
+      throw new Error('Memory path is required.')
+    }
+
+    if (normalized.length > MAX_MEMORY_PATH_DEPTH) {
+      throw new Error(
+        `Memory path is too deep. Maximum depth is ${MAX_MEMORY_PATH_DEPTH}.`
+      )
+    }
+
+    if (normalized[0]?.toLowerCase() === DIRECTORY_TITLE.toLowerCase()) {
+      throw new Error(`'${DIRECTORY_TITLE}' is reserved.`)
+    }
+
+    return normalized
+  }
+
+  private normalizeTitle(value: unknown): string {
+    if (typeof value !== 'string') {
+      throw new TypeError('Memory path items must be strings.')
+    }
+
+    const title = value.trim()
+    if (!title) {
+      throw new Error('Memory path items cannot be empty.')
+    }
+
+    if (/[\r\n]/.test(title)) {
+      throw new Error('Memory path items cannot contain line breaks.')
+    }
+
+    return title
+  }
+
+  private normalizeContent(value: unknown): string {
+    if (typeof value !== 'string') {
+      throw new TypeError('content is required.')
+    }
+
+    const content = normalizeLineEndings(value).trim()
+    if (!content) {
+      throw new Error('content is required.')
+    }
+
+    return content
   }
 
   private getSessionSummaryFile(sessionKey: string): string {
@@ -203,7 +471,6 @@ export class MemoryStore {
   }
 
   private readFileIfExists(filePath: string): string {
-    // 缺失记忆文件不是异常；空字符串让上层可以自然跳过该层上下文。
     if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
       return ''
     }
@@ -211,28 +478,21 @@ export class MemoryStore {
     return fs.readFileSync(filePath, 'utf-8')
   }
 
-  private appendBlock(filePath: string, content: string): void {
-    // 使用追加块而不是覆盖，减少模型误删已有记忆的风险。
-    const existing = this.readFileIfExists(filePath)
-    const separator = existing.trim().length > 0 ? '\n\n' : ''
-    fs.writeFileSync(
-      filePath,
-      `${existing.trimEnd()}${separator}${content}\n`,
-      'utf-8'
-    )
-  }
+  private cleanupDailyMemoryFiles(): void {
+    for (const entry of fs.readdirSync(this.memoryDir)) {
+      if (!DAILY_MEMORY_FILE_PATTERN.test(entry)) {
+        continue
+      }
 
-  private assertDateReadLimit(count: number): void {
-    // 这个限制放在 Store 层，保证无论工具还是未来其他调用方都遵守同一条保护规则。
-    if (count > MAX_MEMORY_DAYS_PER_READ) {
-      throw new Error(
-        `Too many memory days requested. Maximum is ${MAX_MEMORY_DAYS_PER_READ}.`
-      )
+      const filePath = path.join(this.memoryDir, entry)
+      try {
+        if (fs.statSync(filePath).isFile()) {
+          fs.unlinkSync(filePath)
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        logger.warn(`[MemoryStore] failed to delete legacy memory: ${message}`)
+      }
     }
   }
-}
-
-const formatMemoryEntry = (content: string): string => {
-  // 记忆条目统一带本地时间戳，方便用户后续人工审查或清理。
-  return `- ${formatLocalTimestamp()}: ${content}`
 }

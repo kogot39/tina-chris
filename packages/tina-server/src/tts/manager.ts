@@ -42,8 +42,13 @@ export type TTSProvider = {
 }
 
 const TTS_MANAGER_TARGET = 'tts-manager'
-// 延时关闭时间
+// TTS 连接创建成本较高，结束一句话后先保留一段时间，便于连续回复复用。
 const TTS_IDLE_CLOSE_MS = 5 * 60 * 1000
+// 句子边界由 TTSManager 统一判断；AgentLoop 不再依赖 <speak> 标签分句。
+const SENTENCE_END_RE =
+  /(?:\.{3}|\u2026|[\u3002\uFF01\uFF1F!?\uFF1B;\r\n])(?:["'\u201D\u2019\uFF09\u3011\u300B\u300D\u300F\]\s]*)$/
+// 如果模型长时间不输出句末标点，达到软长度且遇到空白也提交一次，降低语音延迟。
+const SOFT_COMMIT_LENGTH = 120
 
 const TTSMap = {
   qwen: {
@@ -176,6 +181,10 @@ export class TTSManager {
   private sessionSources = new Map<string, InboundMessage>()
   private sessionOperationQueues = new Map<string, Promise<void>>()
   private sessionHasPendingText = new Map<string, boolean>()
+  private sessionSentenceBuffers = new Map<string, string>()
+  // abort 可能发生在若干文本 chunk 已进入 bus 但尚未被 TTSManager 消费时。
+  // 记录中止时间后，旧 chunk 会在 dispatchInboundMessage() 前被丢弃，防止停止后又重开 TTS。
+  private sessionAbortTimestamps = new Map<string, number>()
 
   constructor(
     private config: Config,
@@ -218,6 +227,9 @@ export class TTSManager {
     const instance = provider.create(config)
     instance.setErrorHandler((error) => {
       const source = this.sessionSources.get(message.sessionKey) ?? message
+      if (this.shouldDropAfterAbort(message)) {
+        return
+      }
       // 忽略空音频缓存时提交 commit 时抛出的错误
       if (this.isIgnorableEmptyBufferError(error.message)) {
         logger.warn(
@@ -259,7 +271,9 @@ export class TTSManager {
     } catch (error) {
       const reason =
         error instanceof Error ? error.message : 'Unknown connect error.'
-      this.publishError(message, `Failed to connect TTS provider: ${reason}`)
+      if (!this.shouldDropAfterAbort(message)) {
+        this.publishError(message, `Failed to connect TTS provider: ${reason}`)
+      }
       await instance.close().catch(() => undefined)
       this.forwardingSessions.delete(sessionKey)
       this.clearSessionTracking(sessionKey)
@@ -296,7 +310,9 @@ export class TTSManager {
         }
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error)
-        this.publishError(source, `TTS audio stream failed: ${reason}`)
+        if (!this.shouldDropAfterAbort(source)) {
+          this.publishError(source, `TTS audio stream failed: ${reason}`)
+        }
       } finally {
         // 无论正常结束还是发生崩溃，清理转发过程中的标记
         this.forwardingSessions.delete(sessionKey)
@@ -312,7 +328,7 @@ export class TTSManager {
   }
 
   private async handleTextMessage(message: InboundMessage): Promise<void> {
-    const content = message.content
+    const content = this.sanitizeSpeechText(message.content)
     // 忽略空格或无效的文本
     if (!content || !content.trim()) {
       return
@@ -330,10 +346,16 @@ export class TTSManager {
       await instance.appendText(content)
       // 记录存在尚未 commit 提交处理的文本数据
       this.sessionHasPendingText.set(message.sessionKey, true)
+      this.appendSentenceBuffer(message.sessionKey, content)
+      if (this.shouldCommitSentence(message.sessionKey)) {
+        await this.commitPendingText(message, instance)
+      }
     } catch (error) {
       const reason =
         error instanceof Error ? error.message : 'Unknown append error.'
-      this.publishError(message, `Failed to append TTS text: ${reason}`)
+      if (!this.shouldDropAfterAbort(message)) {
+        this.publishError(message, `Failed to append TTS text: ${reason}`)
+      }
     }
   }
 
@@ -346,27 +368,9 @@ export class TTSManager {
     }
 
     const activityVersion = this.markSessionActive(message)
-    // 检查是否有由于缓存导致未完成推理的缓冲片段
     if (this.sessionHasPendingText.get(sessionKey)) {
-      try {
-        // 让当前 TTS 把待处理（未完全成句）的内容主动提交生成音频
-        await instance.commit()
-        this.sessionHasPendingText.set(sessionKey, false)
-      } catch (error) {
-        const reason =
-          error instanceof Error ? error.message : 'Unknown commit error.'
-
-        // 判断是否为可以接受的无有效音频或空缓冲造成的 commit 错误
-        if (!this.isIgnorableEmptyBufferError(reason)) {
-          this.publishError(message, `Failed to commit TTS session: ${reason}`)
-          return
-        }
-
-        logger.warn(
-          `[TTSManager] Ignoring empty buffer commit error: ${reason}`
-        )
-        this.sessionHasPendingText.set(sessionKey, false)
-      }
+      const committed = await this.commitPendingText(message, instance)
+      if (!committed) return
     }
 
     // 如果在这期间又有新的活跃动作发生（例如开启了一个新生成词），那么不需要挂起退出
@@ -407,7 +411,25 @@ export class TTSManager {
     this.sessionSources.clear()
     this.sessionOperationQueues.clear()
     this.sessionHasPendingText.clear()
+    this.sessionSentenceBuffers.clear()
+    this.sessionAbortTimestamps.clear()
     await Promise.all(closingTasks)
+  }
+
+  async abortSession(channel: string, chatId: string): Promise<void> {
+    const sessionKey = `${channel}:${chatId}`
+    // 先写 abort 时间，再关闭底层实例。这样并发排队中的消息即使晚一点执行，
+    // 也能通过 timestamp 判断自己属于已中止的旧回复。
+    this.sessionAbortTimestamps.set(sessionKey, Date.now())
+    const instance = this.sessionInstances.get(sessionKey)
+    if (!instance) {
+      this.clearSessionTracking(sessionKey)
+      return
+    }
+
+    this.sessionInstances.delete(sessionKey)
+    this.clearSessionTracking(sessionKey)
+    await instance.close({ graceful: false }).catch(() => undefined)
   }
 
   private markSessionActive(message: InboundMessage): number {
@@ -459,7 +481,9 @@ export class TTSManager {
 
       const reason =
         error instanceof Error ? error.message : 'Unknown close error.'
-      this.publishError(source, `Failed to close idle TTS session: ${reason}`)
+      if (!this.shouldDropAfterAbort(source)) {
+        this.publishError(source, `Failed to close idle TTS session: ${reason}`)
+      }
     }
   }
 
@@ -483,6 +507,7 @@ export class TTSManager {
     this.sessionActivityVersions.delete(sessionKey)
     this.sessionSources.delete(sessionKey)
     this.sessionHasPendingText.delete(sessionKey)
+    this.sessionSentenceBuffers.delete(sessionKey)
 
     if (!instance || current === instance) {
       this.sessionInstances.delete(sessionKey)
@@ -520,6 +545,10 @@ export class TTSManager {
   }
 
   private async dispatchInboundMessage(message: InboundMessage): Promise<void> {
+    if (this.shouldDropAfterAbort(message)) {
+      return
+    }
+
     // 起始指令处理：提前触发并建立连接（可选，后续收到文本仍有处理）
     if (message instanceof ConnectionStartMessage) {
       await this.handleConnectionStart(message)
@@ -538,6 +567,22 @@ export class TTSManager {
     }
   }
 
+  private shouldDropAfterAbort(message: InboundMessage): boolean {
+    const abortTimestamp = this.sessionAbortTimestamps.get(message.sessionKey)
+    if (abortTimestamp === undefined) {
+      return false
+    }
+
+    if (message.timestamp <= abortTimestamp) {
+      return true
+    }
+
+    // 时间晚于 abort 的消息属于同一 chat 中的新回复。此时清掉 abort 标记，
+    // 让新一轮 TTS 正常开始，同时仍保证旧回复排队中的 chunk 被丢弃。
+    this.sessionAbortTimestamps.delete(message.sessionKey)
+    return false
+  }
+
   private isIgnorableEmptyBufferError(message: string): boolean {
     const normalized = message.toLowerCase()
     return (
@@ -545,5 +590,65 @@ export class TTSManager {
       message.includes('缓冲区为空') ||
       message.includes('不能为空')
     )
+  }
+
+  private appendSentenceBuffer(sessionKey: string, text: string): void {
+    const current = this.sessionSentenceBuffers.get(sessionKey) || ''
+    this.sessionSentenceBuffers.set(sessionKey, `${current}${text}`)
+  }
+
+  private shouldCommitSentence(sessionKey: string): boolean {
+    const raw = this.sessionSentenceBuffers.get(sessionKey) || ''
+    const buffered = raw.trim()
+    if (!buffered) {
+      return false
+    }
+
+    return (
+      SENTENCE_END_RE.test(buffered) ||
+      (buffered.length >= SOFT_COMMIT_LENGTH && /\s$/.test(raw))
+    )
+  }
+
+  private async commitPendingText(
+    message: InboundMessage,
+    instance: BaseTTS
+  ): Promise<boolean> {
+    const sessionKey = message.sessionKey
+    try {
+      await instance.commit()
+      this.sessionHasPendingText.set(sessionKey, false)
+      this.sessionSentenceBuffers.set(sessionKey, '')
+      return true
+    } catch (error) {
+      const reason =
+        error instanceof Error ? error.message : 'Unknown commit error.'
+
+      if (!this.isIgnorableEmptyBufferError(reason)) {
+        if (!this.shouldDropAfterAbort(message)) {
+          this.publishError(message, `Failed to commit TTS session: ${reason}`)
+        }
+        return false
+      }
+
+      logger.warn(`[TTSManager] Ignoring empty buffer commit error: ${reason}`)
+      this.sessionHasPendingText.set(sessionKey, false)
+      this.sessionSentenceBuffers.set(sessionKey, '')
+      return true
+    }
+  }
+
+  private sanitizeSpeechText(value: string): string {
+    // 面向流式文本的轻量清洗：保留自然句末标点用于断句，但去掉 Markdown、
+    // URL、代码片段和容易被 TTS 读成“符号名称”的字符。这里不追求完美 Markdown
+    // 解析，因为输入是 delta 流，完整语法块可能跨多次消息才出现。
+    return value
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/`[^`]*`/g, ' ')
+      .replace(/https?:\/\/\S+/gi, ' ')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/[*_~>#|[\]{}\\]/g, ' ')
+      .replace(/[<>=`$^]/g, ' ')
+      .replace(/\s+/g, ' ')
   }
 }

@@ -30,6 +30,7 @@ import {
   ChannelManager,
   LLMManager,
   STTManager,
+  SessionManager,
   TTSManager,
   createTTSVoiceCloneByKey,
   deleteTTSVoiceCloneByKey,
@@ -59,13 +60,26 @@ import {
   InboundMessage,
   MessageBus,
 } from '@tina-chris/tina-bus'
-import { getRootFilePath } from '@tina-chris/tina-util'
+import { getRootFilePath, resolveWorkspacePath } from '@tina-chris/tina-util'
 
 import type { OutboundMessage } from '@tina-chris/tina-bus'
+import type { GetSessionMessagesInput, SessionMessagesPage } from '../shared'
 
 // Electron main 入口在当前包的 type=module 下会以 ESM 运行。
 // 打包配置调整后不能再依赖 CommonJS 注入的 __dirname，因此这里显式从 import.meta.url 还原。
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// 桌面端会同时运行在源码开发态和 electron-builder 安装态：
+// - 开发态 public 位于 app 目录下，方便 Vite / Electron 直接读取。
+// - 安装态 hiyori、窗口图标等 public 资源会被 asarUnpack 解到真实文件系统，
+//   需要从 process.resourcesPath/app.asar.unpacked/public 读取，不能再访问 app.asar 内的虚拟路径。
+const getBundledPublicPath = (...segments: string[]): string => {
+  const publicRoot = app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'public')
+    : path.join(__dirname, '../../public')
+
+  return path.join(publicRoot, ...segments)
+}
 
 // 注册自定义协议，确保其具有适当的权限以支持安全的资源加载
 protocol.registerSchemesAsPrivileged([
@@ -184,9 +198,39 @@ const getCurrentToolProvider = (toolType: string): string => {
   return typeof current === 'string' ? current : ''
 }
 
+const EMPTY_SESSION_MESSAGES_PAGE: SessionMessagesPage = {
+  items: [],
+  nextCursor: null,
+}
+
+const getSessionMessagesPage = (
+  input: GetSessionMessagesInput = {}
+): SessionMessagesPage => {
+  const sessionKey =
+    typeof input.sessionKey === 'string' && input.sessionKey
+      ? input.sessionKey
+      : 'desktop:default'
+  const limit =
+    typeof input.limit === 'number' && Number.isFinite(input.limit)
+      ? input.limit
+      : 50
+
+  if (!runtimeConfig.agent.workspace.trim()) {
+    return EMPTY_SESSION_MESSAGES_PAGE
+  }
+
+  // 会话文件跟随 Agent workspace 存储。这里按 IPC 请求即时创建轻量 SessionManager，
+  // 避免把 AgentLoop 的运行时私有对象暴露给 Electron 主进程其他逻辑。
+  const workspacePath = resolveWorkspacePath(runtimeConfig.agent.workspace)
+  const sessionManager = new SessionManager(workspacePath)
+  return cloneSerializable(
+    sessionManager.getMessagesPage(sessionKey, input.cursor, limit)
+  )
+}
+
 function createWindow(): void {
   const { width, height, x, y } = screen.getPrimaryDisplay().bounds
-  const faviconPath = path.join(__dirname, '../../public/favicon.ico')
+  const faviconPath = getBundledPublicPath('favicon.ico')
 
   const mainWindow = new BrowserWindow({
     width,
@@ -419,6 +463,13 @@ function createWindow(): void {
     }
   })
 
+  ipcMain.handle(
+    'session:get-messages',
+    async (_event, input?: GetSessionMessagesInput) => {
+      return getSessionMessagesPage(input)
+    }
+  )
+
   // bus: 订阅消息
   messageBus.subscribeOutbound('desktop', async (message: OutboundMessage) => {
     // 将总线中的消息通过 IPC 发送到主窗口，供前端展示或处理
@@ -483,6 +534,17 @@ function createWindow(): void {
       })
     )
     return true
+  })
+
+  ipcMain.handle('bus:abort-agent-response', async () => {
+    const channel = 'desktop'
+    const chatId = 'default'
+    // abort 需要同时通知 AgentLoop 和 TTSManager：
+    // - AgentLoop 取消当前 pi-ai stream，并停止继续发布文本/工具展示；
+    // - TTSManager 关闭语音连接并丢弃已经排队但属于旧回复的文本 chunk。
+    const aborted = agentLoop.abortSession(channel, chatId)
+    await ttsManager.abortSession(channel, chatId)
+    return aborted
   })
 
   // Tool 相关的 IPC 处理器
@@ -880,11 +942,7 @@ app.whenReady().then(async () => {
   // 启动应用前，初始化模型存储目录，将 public 中的默认模型复制到模型存储目录
   // 确保应用有一个可用的默认模型，并且用户的自定义模型能够被正确管理和访问
   const modelRootDir = getRootFilePath(MODEL_STORAGE_DIR)
-  const defaultModelSourceDir = join(
-    app.getAppPath(),
-    'public',
-    'hiyori_free_t08'
-  )
+  const defaultModelSourceDir = getBundledPublicPath('hiyori_free_t08')
 
   try {
     await ensureModelStoreInitialized({

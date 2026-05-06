@@ -72,7 +72,6 @@ export class STTManager {
       async (message: InboundMessage) => {
         if (message instanceof ConnectionStartMessage) {
           await this.handleConnectionStart(message)
-          this.publish(message, 'text', 'STT session started.')
           return
         }
 

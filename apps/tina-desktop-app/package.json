@@ -39,6 +39,7 @@
     "electron": "catalog:",
     "electron-builder": "^26.8.1",
     "electron-vite": "catalog:",
+    "rcedit": "^5.0.2",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",

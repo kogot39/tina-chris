@@ -45,9 +45,8 @@ yarn-error.log*
 *.local
 lerna-debug.log*
 
-apps/example
-
 .vite
+.cache
 .eslintcache
 
 **/*.trace
@@ -60,6 +59,3 @@ package-lock.json
 .data
 .logger
 .model
-
-agent-example
-agent-example-js

@@ -1,3 +1,6 @@
 export { default as BaseMessage } from './BaseMessage.vue'
 export { default as HumanMessage } from './HumanMessage.vue'
 export { default as AgentMessage } from './AgentMessage.vue'
+export { default as CaptureAudioMessage } from './CaptureAudioMessage.vue'
+export { default as ReasoningContentMessage } from './ReasoningContentMessage.vue'
+export { default as ToolMessage } from './ToolMessage.vue'

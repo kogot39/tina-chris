@@ -17,13 +17,21 @@
         <ChatLayout
           v-if="showChat"
           :messages="messages"
+          :has-more="historyHasMore"
+          :loading-more="historyLoading"
+          :disable-input="isPlaying"
           @send-message="sendMessage"
+          @close-callback="hideChatPanel"
+          @load-more="loadMoreSessionMessages"
           @focus-change="onChatInputFocusChange"
           @composing-change="onChatInputComposingChange"
         />
       </template>
       <template #model="{ isResizing }">
-        <ModelLayout :direction="place" :is-active="isResizing">
+        <ModelLayout
+          :direction="place"
+          :is-active="isResizing || showChat || isRecording || isPlaying"
+        >
           <Model
             :model-src="modelUrl"
             :width="modelWidth"
@@ -39,6 +47,7 @@
               <IconButton
                 tooltip="录音"
                 :need-active-color="true"
+                :disabled="isPlaying"
                 @after-active="handleStartRecording"
                 @after-deactive="handleStopRecording"
               >
@@ -69,8 +78,8 @@
               </IconButton>
               <IconButton
                 tooltip="聊天记录"
-                @after-active="showChatPanel"
-                @after-deactive="hideChatPanel"
+                :need-active-color="false"
+                @click="showChatPanel"
               >
                 <iconpark-icon name="message"
               /></IconButton>
@@ -78,9 +87,13 @@
           </template>
           <template #big-btn>
             <div ref="bigButtonRef" class="h-full w-full">
-              <!-- <VoicePlayButton :is-playing="false" /> -->
-              <!-- <VoiceRecordButton :wave="waveformData" /> -->
-              <SettingButton @click="openSettings" />
+              <VoicePlayButton
+                v-if="isPlaying"
+                :is-playing="false"
+                @click="abortAgentResponse"
+              />
+              <VoiceRecordButton v-else-if="isRecording" :wave="waveformData" />
+              <SettingButton v-else @click="openSettings" />
             </div>
           </template>
         </ModelLayout>
@@ -92,6 +105,7 @@
 <script setup lang="ts">
 import {
   inject,
+  nextTick,
   onMounted,
   onUnmounted,
   ref,
@@ -110,14 +124,16 @@ import {
   IconButtonsJoin,
   ModelLayout,
   SettingButton,
-  // VoicePlayButton,
-  // VoiceRecordButton,
+  VoicePlayButton,
+  VoiceRecordButton,
   WinLayout,
   useAudio,
   useDrawLoop,
   useMessage,
 } from '@tina-chris/tina-ui'
 import { useMouseInElement, useResizeObserver } from '@vueuse/core'
+
+import type { TextMessageStatus, ToolMessageStatus } from '@tina-chris/tina-ui'
 
 const toast: any = inject('toast')
 
@@ -147,15 +163,17 @@ let offBusMessage: (() => void) | null = null
 // 动态控制窗口大小
 const initWidth = ref(0)
 const initHeight = ref(0)
-// 400 和 480 是初始预设值，后续会根据窗口大小动态调整
-const modelWidth = ref(400)
-const modelHeight = ref(480)
+const modelWidth = ref(0)
+const modelHeight = ref(0)
 const windowRef = useTemplateRef<HTMLDivElement>('windowRef')
 useResizeObserver(windowRef, (entries) => {
   const { width } = entries[0].contentRect
   // 初始宽度占0.2，高度为宽度的1.2倍
   initWidth.value = width * 0.2
   initHeight.value = initWidth.value * 1.2
+  // 同步模型尺寸，保持与窗口一致
+  modelWidth.value = initWidth.value
+  modelHeight.value = initHeight.value
 })
 
 const resizeModel = (width: number, height: number) => {
@@ -268,17 +286,79 @@ const togglePlace = () => {
   place.value = place.value === 'right' ? 'left' : 'right'
 }
 
-const { drawLoop } = useDrawLoop() // 音频可视化绘制
-const { messages, addMessage } = useMessage() // 消息管理
-const { pushAudio, startRecording, stopRecording } = useAudio((chunck) => {
-  // 接收到音频数据后，交给主线程发送到总线上
+const { drawLoop, waveformData } = useDrawLoop() // 音频可视化绘制
+const {
+  messages,
+  addUserMessage,
+  addSpeechTextMessage,
+  addReasoningMessage,
+  addAssistantMessage,
+  addToolCallMessage,
+  addToolResultMessage,
+  initMessages,
+  prependMessages,
+} = useMessage() // 消息管理
+const { pushAudio, startRecording, stopRecording, isRecording } = useAudio(
+  (chunck) => {
+    // 接收到音频数据后，交给主线程发送到总线上
 
-  // 将 Int16Array 转换为 ArrayBuffer
-  const buffer = new ArrayBuffer(chunck.byteLength)
-  new Int16Array(buffer).set(chunck)
+    // 将 Int16Array 转换为 ArrayBuffer
+    const buffer = new ArrayBuffer(chunck.byteLength)
+    new Int16Array(buffer).set(chunck)
 
-  window.electronAPI.sendAudioInboundMessage(buffer)
-})
+    window.electronAPI.sendAudioInboundMessage(buffer)
+  }
+)
+
+const DESKTOP_SESSION_KEY = 'desktop:default'
+const HISTORY_PAGE_SIZE = 50
+const historyCursor = ref<number | null>(null)
+const historyLoading = ref(false)
+const historyHasMore = ref(false)
+const isPlaying = ref(false)
+
+const loadInitialSessionMessages = async () => {
+  historyLoading.value = true
+  try {
+    const page = await window.electronAPI.getSessionMessages({
+      sessionKey: DESKTOP_SESSION_KEY,
+      limit: HISTORY_PAGE_SIZE,
+    })
+    initMessages(page.items)
+    historyCursor.value = page.nextCursor
+    historyHasMore.value = page.nextCursor !== null
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '加载历史会话失败'
+    console.error('Failed to load session messages:', error)
+    toast.error?.(message)
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+const loadMoreSessionMessages = async () => {
+  if (historyLoading.value || !historyHasMore.value) {
+    return
+  }
+
+  historyLoading.value = true
+  try {
+    const page = await window.electronAPI.getSessionMessages({
+      sessionKey: DESKTOP_SESSION_KEY,
+      cursor: historyCursor.value,
+      limit: HISTORY_PAGE_SIZE,
+    })
+    prependMessages(page.items)
+    historyCursor.value = page.nextCursor
+    historyHasMore.value = page.nextCursor !== null
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '加载更早历史失败'
+    console.error('Failed to load older session messages:', error)
+    toast.error?.(message)
+  } finally {
+    historyLoading.value = false
+  }
+}
 
 const handleStartRecording = () => {
   // 通知 STT 开启连接
@@ -299,13 +379,6 @@ const sendMessage = async (content: string) => {
     return
   }
 
-  addMessage({
-    id: crypto.randomUUID(),
-    role: 'human',
-    content: nextContent,
-    timestamp: Date.now(),
-  })
-
   try {
     await window.electronAPI.sendTextInboundMessage(nextContent)
   } catch (error) {
@@ -315,11 +388,158 @@ const sendMessage = async (content: string) => {
   }
 }
 
+const abortAgentResponse = async () => {
+  isPlaying.value = false
+  try {
+    await window.electronAPI.abortAgentResponse()
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : '中止 Agent 回复失败'
+    toast.error?.(message)
+  }
+}
+
+// bus metadata 来自主进程/服务端，渲染进程不能直接信任为 UI 类型。
+// 这里做一次窄化，避免错误字符串进入 useMessage 后污染展示状态。
+const toTextMessageStatus = (value: unknown): TextMessageStatus | undefined => {
+  if (
+    value === 'pending' ||
+    value === 'streaming' ||
+    value === 'complete' ||
+    value === 'error' ||
+    value === 'aborted'
+  ) {
+    return value
+  }
+
+  return undefined
+}
+
+const toToolMessageStatus = (value: unknown): ToolMessageStatus | undefined => {
+  if (
+    value === 'calling' ||
+    value === 'complete' ||
+    value === 'error' ||
+    value === 'aborted'
+  ) {
+    return value
+  }
+
+  return undefined
+}
+
+const getBusTimestamp = (timestamp: unknown): number => {
+  return typeof timestamp === 'number' && Number.isFinite(timestamp)
+    ? timestamp
+    : 0
+}
+
+const applyDisplayMessage = (message: {
+  senderId: string
+  type: string
+  content: string
+  timestamp: number
+  metadata?: Record<string, unknown>
+}) => {
+  const timestamp = getBusTimestamp(message.timestamp)
+  const metadataId =
+    typeof message.metadata?.id === 'string' ? message.metadata.id : ''
+  const id = metadataId || crypto.randomUUID()
+  const displayType =
+    typeof message.metadata?.displayType === 'string'
+      ? message.metadata.displayType
+      : ''
+  const displayStatus = message.metadata?.displayStatus
+
+  // STT 文本没有 displayType，它是语音识别过程的展示消息；timestamp 仍然使用
+  // 主进程/服务端发来的 bus timestamp，不在渲染进程重新 Date.now()。
+  if (message.senderId === 'stt-manager' && message.type === 'text') {
+    addSpeechTextMessage({
+      id,
+      content: message.content,
+      status: 'complete',
+      timestamp,
+    })
+    return
+  }
+
+  if (displayType === 'user') {
+    addUserMessage({
+      id,
+      content: message.content,
+      status: toTextMessageStatus(displayStatus),
+      timestamp,
+    })
+    return
+  }
+
+  if (displayType === 'reasoning') {
+    addReasoningMessage({
+      id,
+      content: message.content,
+      status: toTextMessageStatus(displayStatus),
+      timestamp,
+    })
+    return
+  }
+
+  if (displayType === 'tool') {
+    const toolName =
+      typeof message.metadata?.toolName === 'string'
+        ? message.metadata.toolName
+        : 'unknown_tool'
+    const status = toToolMessageStatus(displayStatus)
+    if (status === 'calling' || !displayStatus) {
+      addToolCallMessage({
+        id,
+        toolName,
+        parameters: message.metadata?.parameters,
+        content: message.content,
+        timestamp,
+      })
+      return
+    }
+
+    addToolResultMessage({
+      id,
+      toolName,
+      result: message.metadata?.result,
+      error:
+        typeof message.metadata?.error === 'string'
+          ? message.metadata.error
+          : undefined,
+      content: message.content,
+      status,
+      timestamp,
+    })
+    return
+  }
+
+  if (displayType === 'assistant' || message.senderId === 'agent') {
+    addAssistantMessage({
+      id,
+      content: message.content,
+      status: toTextMessageStatus(displayStatus),
+      timestamp,
+    })
+  }
+}
+
+const isSettingWindowOpen = ref(false)
 const openSettings = () => {
-  window.electronAPI.openSettingWindow()
+  isSettingWindowOpen.value = true
+  // 关闭聊天面板
+  hideChatPanel()
+  nextTick(() => {
+    // 确保设置窗口状态更新后再打开窗口，避免 UI 状态与实际窗口状态不同步导致的穿透问题
+    window.electronAPI.openSettingWindow()
+  })
 }
 
 onMounted(() => {
+  loadInitialSessionMessages().catch((error) => {
+    console.error('Failed to initialize session history on mount', error)
+  })
   loadActiveModel().catch((error) => {
     console.error('Failed to initialize active model on mount', error)
     toast.error('Failed to load active model on startup')
@@ -330,7 +550,9 @@ onMounted(() => {
     modelUrl.value = active.url
   })
   // 订阅设置窗口关闭事件
-  offSettingWindowClosed = window.electronAPI.onSettingClosed(() => {})
+  offSettingWindowClosed = window.electronAPI.onSettingClosed(() => {
+    isSettingWindowOpen.value = false
+  })
   // 订阅总线中的消息，拿到取消函数以便在组件卸载时取消订阅
   offBusMessage = window.electronAPI.subscribeOutboundMessage((message) => {
     // 接收到总线中的消息，根据消息类型和发送者进行不同处理
@@ -349,20 +571,20 @@ onMounted(() => {
       return
     }
 
-    // 流式回复会在 metadata.id 中携带统一消息 id，前端据此合并为同一条消息。
-    const metadataId =
-      typeof message.metadata?.id === 'string' ? message.metadata.id : ''
-    const role =
-      message.senderId === 'stt-manager' && message.type === 'text'
-        ? 'human'
-        : 'agent'
+    // AgentLoop 发的响应生命周期信号，不进入消息列表
+    if (message.senderId === 'agent' && message.type === 'response_start') {
+      isPlaying.value = true
+      return
+    }
+    if (message.senderId === 'agent' && message.type === 'response_end') {
+      isPlaying.value = false
+      return
+    }
 
-    addMessage({
-      id: metadataId || crypto.randomUUID(),
-      role,
-      content: message.content,
-      timestamp: Date.now(),
-    })
+    // bus 外层 type 仍用于传输协议，例如 text/audio/error；
+    // 桌面 UI 真正的展示类型放在 metadata.displayType 中：
+    // user/assistant/reasoning/tool 分别进入不同的 useMessage upsert 分支。
+    applyDisplayMessage(message)
   })
 })
 

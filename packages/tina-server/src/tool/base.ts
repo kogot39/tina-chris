@@ -1,17 +1,13 @@
-// 工具抽象类定义了工具的基本结构和行为，包括名称、描述、参数以及执行方法
-// 每个具体的工具需要继承这个抽象类并实现这些属性和方法，以便在 AgentLoop 中被注册和调用。
-export type ToolParameters = Record<string, unknown>
+import { type Tool as PiTool, type TSchema, Type } from '@mariozechner/pi-ai'
 
-// TODO: 后续使用 Zod 定义参数结构，提供更丰富的类型信息和验证能力
-export type ToolSchema = {
-  type: 'function'
-  function: {
-    name: string
-    description: string
-    parameters: ToolParameters
-  }
-}
+export type ToolParameters = TSchema
+export type ToolSchema = PiTool
 
+export const EmptyParameters = Type.Object({})
+
+// Tool 保留 Tina 原来的“顶层 Registry + 子工具类”结构，但公开 schema 已切成
+// pi-ai Tool + TypeBox。这样工具定义可以交给 pi-ai 统一转换到不同供应商，
+// Tina 不再维护 OpenAI function calling 专用 schema。
 export abstract class Tool {
   abstract get name(): string
   abstract get description(): string
@@ -21,12 +17,9 @@ export abstract class Tool {
 
   toSchema(): ToolSchema {
     return {
-      type: 'function',
-      function: {
-        name: this.name,
-        description: this.description,
-        parameters: this.parameters,
-      },
+      name: this.name,
+      description: this.description,
+      parameters: this.parameters,
     }
   }
 }

@@ -17,16 +17,18 @@ files:
 
 asar: true
 asarUnpack:
-  # 内置模型首次启动会被复制到用户本地 .model 目录，解包后文件系统访问更稳。
-  - public/hiyori_free_t08/**
+  # main 进程需要从真实文件系统读取默认模型、窗口/托盘图标等静态资源。
+  # 安装态代码会定位到 resources/app.asar.unpacked/public。
+  - public/**
+
+afterPack: build/afterPack.cjs
 
 npmRebuild: false
 
 win:
-  # TODO: 图标配置还有一点问题，设置页加载不到对应图标
   icon: public/favicon.ico
-  # 本项目暂未配置代码签名证书。关闭签名/资源编辑后，
-  # 普通 Windows 开发环境无需管理员符号链接权限也能完成本地打包。
+  # 当前普通 Windows 权限下，electron-builder 的 winCodeSign 解压会因为 symlink 权限失败。
+  # 这里关闭内置签名/资源编辑，再由 build/afterPack.cjs 使用 rcedit 只写入 exe 图标。
   signAndEditExecutable: false
   target:
     - target: nsis
@@ -34,6 +36,9 @@ win:
         - x64
 
 nsis:
+  installerIcon: public/favicon.ico
+  uninstallerIcon: public/favicon.ico
+  installerHeaderIcon: public/favicon.ico
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true

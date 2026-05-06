@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { Type } from '@mariozechner/pi-ai'
 import {
   MessageBus,
   type MessageMetadata,
@@ -29,13 +30,9 @@ export class MessageTool extends Tool {
   }
 
   get parameters(): ToolParameters {
-    return {
-      type: 'object',
-      properties: {
-        content: { type: 'string', description: 'Message content to send.' },
-      },
-      required: ['content'],
-    }
+    return Type.Object({
+      content: Type.String({ description: 'Message content to send.' }),
+    })
   }
 
   async execute(params: Record<string, unknown>): Promise<string> {
@@ -46,6 +43,8 @@ export class MessageTool extends Tool {
 
     const metadata: MessageMetadata = {
       id: randomUUID(),
+      displayType: 'assistant',
+      displayStatus: 'complete',
     }
 
     this.bus.publishOutbound(

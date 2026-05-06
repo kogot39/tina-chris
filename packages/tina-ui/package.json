@@ -34,12 +34,14 @@
   "dependencies": {
     "@ricky0123/vad-web": "^0.0.30",
     "@vueuse/core": "catalog:",
+    "markdown-it": "^14.1.1",
     "onnxruntime-web": "^1.24.3",
     "uuid": "catalog:"
   },
   "devDependencies": {
     "@tailwindcss/vite": "catalog:",
     "@tina-chris/live2d-model": "workspace:*",
+    "@types/markdown-it": "^14.1.2",
     "@vitejs/plugin-vue": "catalog:",
     "@vitejs/plugin-vue-jsx": "catalog:",
     "daisyui": "^5.5.19",

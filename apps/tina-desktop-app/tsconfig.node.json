@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "composite": true,
+    "tsBuildInfoFile": "../../.cache/tina-desktop-app/tsconfig.node.tsbuildinfo",
     "types": ["electron-vite/node"],
     "strict": true,
     "paths": {

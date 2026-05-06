@@ -1,3 +1,4 @@
+import { StringEnum, Type } from '@mariozechner/pi-ai'
 import { Tool, type ToolParameters } from './base'
 // 网络搜索和内容抓取相关工具实现，使用了 Bocha Search API 作为示例搜索提供商
 
@@ -95,19 +96,16 @@ export class WebSearchTool extends Tool {
   }
 
   get parameters(): ToolParameters {
-    return {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Search query.' },
-        count: {
-          type: 'integer',
+    return Type.Object({
+      query: Type.String({ description: 'Search query.' }),
+      count: Type.Optional(
+        Type.Integer({
           description: 'Number of results, from 1 to 10.',
           minimum: 1,
           maximum: 10,
-        },
-      },
-      required: ['query'],
-    }
+        })
+      ),
+    })
   }
 
   async execute(params: Record<string, unknown>): Promise<string> {
@@ -172,19 +170,16 @@ export class WebFetchTool extends Tool {
   }
 
   get parameters(): ToolParameters {
-    return {
-      type: 'object',
-      properties: {
-        url: { type: 'string', description: 'URL to fetch.' },
-        extractMode: {
-          type: 'string',
-          enum: ['markdown', 'text'],
+    return Type.Object({
+      url: Type.String({ description: 'URL to fetch.' }),
+      extractMode: Type.Optional(
+        StringEnum(['markdown', 'text'] as const, {
+          description: 'Readable extraction mode.',
           default: 'markdown',
-        },
-        maxChars: { type: 'integer', minimum: 100 },
-      },
-      required: ['url'],
-    }
+        })
+      ),
+      maxChars: Type.Optional(Type.Integer({ minimum: 100 })),
+    })
   }
 
   async execute(params: Record<string, unknown>): Promise<string> {

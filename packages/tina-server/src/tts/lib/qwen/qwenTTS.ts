@@ -1,17 +1,21 @@
 import WebSocket from 'ws'
 import { writableIterator } from '@tina-chris/tina-util'
-import { BaseTTS, type TTSAudioChunkEvent, type TTSErrorHandler } from '../base'
+import {
+  BaseTTS,
+  type TTSAudioChunkEvent,
+  type TTSCloseOptions,
+  type TTSErrorHandler,
+} from '../base'
 
 import type { DynamicFormSchema } from '@tina-chris/tina-ui'
-
 import type {
-  QwenTTSClientEvent,
   QwenInputTextBufferCommitEvent,
+  QwenSessionFinishEvent,
+  QwenTTSClientEvent,
   QwenTTSLanguageType,
   QwenTTSModel,
   QwenTTSServerMessage,
   QwenTTSSessionConfig,
-  QwenSessionFinishEvent,
 } from './api-types'
 
 export const QWEN_TTS_MODELS: Array<{ label: string; value: QwenTTSModel }> = [
@@ -153,11 +157,6 @@ export function getConfigForm(): DynamicFormSchema {
   }
 }
 
-type CloseOptions = {
-  graceful?: boolean
-  timeoutMs?: number
-}
-
 export class QwenTTS extends BaseTTS {
   private bufferIterator = writableIterator<TTSAudioChunkEvent>()
   private connectionPromise: Promise<WebSocket> | null = null
@@ -213,7 +212,7 @@ export class QwenTTS extends BaseTTS {
     this.errorHandler = handler
   }
 
-  async close(options: CloseOptions = {}): Promise<void> {
+  async close(options: TTSCloseOptions = {}): Promise<void> {
     if (!this.connectionPromise) {
       return
     }

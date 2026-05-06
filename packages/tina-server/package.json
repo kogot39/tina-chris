@@ -14,11 +14,11 @@
     "build": "tsdown"
   },
   "dependencies": {
+    "@mariozechner/pi-ai": "^0.72.1",
     "@tina-chris/tina-bus": "workspace:*",
     "@tina-chris/tina-ui": "workspace:*",
     "@tina-chris/tina-util": "workspace:*",
     "@types/ws": "catalog:",
-    "openai": "^6.34.0",
     "qq-official-bot": "^1.0.12",
     "ws": "catalog:"
   },

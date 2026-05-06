@@ -2,7 +2,7 @@
   <div class="flex flex-col w-full h-full overflow-hidden">
     <TopBar
       class="draggable"
-      icon="/favicon.ico"
+      icon="../favicon.ico"
       :items="breadcrumbItems"
       :can-back="canBack"
       @hide="hideWindow"
