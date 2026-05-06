@@ -49,19 +49,11 @@
         required
       />
       <InputFieldItem
-        v-model="agentForm.model"
-        name="model"
-        label="模型名称"
-        hint="若当前 LLM 为 custom，请填写模型名称"
-        placeholder="gpt-4.1 / qwen-plus / claude-sonnet..."
-      />
-      <InputFieldItem
         v-model="agentForm.maxTokens"
         name="maxTokens"
         label="最大 Token 数"
-        hint="默认值 8192"
+        hint="留空则使用当前 LLM 供应商默认配置"
         type="number"
-        min="1"
         step="1"
       />
       <InputFieldItem
@@ -74,11 +66,18 @@
         max="1"
         step="0.1"
       />
+      <SelectFieldItem
+        v-model="agentForm.reasoningEffort"
+        name="reasoningEffort"
+        label="推理强度"
+        hint="会根据模型能力决定是否生效。"
+        :options="reasoningEffortOptions"
+      />
       <InputFieldItem
         v-model="agentForm.maxToolInteractions"
         name="maxToolInteractions"
         label="最大工具调用次数"
-        hint="默认值 20"
+        hint="一轮对话中最大的可调用次数，默认值 20"
         type="number"
         min="1"
         step="1"
@@ -245,8 +244,8 @@ import {
   required,
 } from '@tina-chris/tina-ui'
 import {
-  DEFAULT_MAX_TOKENS,
   DEFAULT_MAX_TOOL_INTERACTIONS,
+  DEFAULT_REASONING_EFFORT,
   DEFAULT_TEMPERATURE,
   createEmptyAgentPrompt,
   createEmptyAgentUserProfile,
@@ -260,6 +259,7 @@ import {
 import type {
   AgentConfigData,
   AgentPromptData,
+  AgentReasoningEffort,
   AgentUserProfileData,
   SoulPromptData,
   StoredModelSource,
@@ -281,6 +281,7 @@ type AgentFormState = {
   model: string
   maxTokens: string
   temperature: string
+  reasoningEffort: AgentReasoningEffort
   maxToolInteractions: string
   userProfile: AgentUserProfileData
   agentPrompt: AgentPromptData
@@ -306,12 +307,22 @@ const technicalLevelOptions = [
   { label: '专家', value: 'Expert' },
 ]
 
+const reasoningEffortOptions = [
+  { label: '关闭', value: 'off' },
+  { label: 'Minimal', value: 'minimal' },
+  { label: 'Low', value: 'low' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'High', value: 'high' },
+  { label: 'XHigh', value: 'xhigh' },
+]
+
 // 创建一个函数来生成默认的 AgentFormState 对象，这样在需要重置表单时可以调用它，保持响应式对象的稳定性
 const createDefaultAgentForm = (): AgentFormState => ({
   workspace: '',
   model: '',
-  maxTokens: String(DEFAULT_MAX_TOKENS),
+  maxTokens: '',
   temperature: String(DEFAULT_TEMPERATURE),
+  reasoningEffort: DEFAULT_REASONING_EFFORT,
   maxToolInteractions: String(DEFAULT_MAX_TOOL_INTERACTIONS),
   userProfile: createEmptyAgentUserProfile(),
   agentPrompt: createEmptyAgentPrompt(),
@@ -333,7 +344,10 @@ const agentRuntimeValidator = createFormValidator<AgentFormState>({
   maxTokens: [
     customRule((value) => {
       const parsed = parsedNumber(value)
-      if (parsed === null || !Number.isInteger(parsed) || parsed <= 0) {
+      if (parsed === null) {
+        return null
+      }
+      if (!Number.isInteger(parsed) || parsed <= 0) {
         return '最大 Token 数必须是大于 0 的整数'
       }
       return null
@@ -385,6 +399,7 @@ const assignAgentForm = (next: AgentFormState) => {
   agentForm.model = next.model
   agentForm.maxTokens = next.maxTokens
   agentForm.temperature = next.temperature
+  agentForm.reasoningEffort = next.reasoningEffort
   agentForm.maxToolInteractions = next.maxToolInteractions
   agentForm.userProfile = { ...next.userProfile }
   agentForm.agentPrompt = { ...next.agentPrompt }
@@ -395,8 +410,9 @@ const assignAgentForm = (next: AgentFormState) => {
 const toAgentForm = (config: AgentConfigData): AgentFormState => ({
   workspace: config.workspace || '',
   model: config.model || '',
-  maxTokens: String(config.maxTokens ?? DEFAULT_MAX_TOKENS),
+  maxTokens: config.maxTokens == null ? '' : String(config.maxTokens),
   temperature: String(config.temperature ?? DEFAULT_TEMPERATURE),
+  reasoningEffort: config.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
   maxToolInteractions: String(
     config.maxToolInteractions ?? DEFAULT_MAX_TOOL_INTERACTIONS
   ),
@@ -421,6 +437,11 @@ const normalizePositiveInteger = (value: string, fallback: number) => {
   return normalized ? Number(normalized) : fallback
 }
 
+const normalizeNullablePositiveInteger = (value: string): number | null => {
+  const normalized = value.trim()
+  return normalized ? Number(normalized) : null
+}
+
 const buildAgentSavePayload = async (): Promise<AgentConfigData | null> => {
   // 表单校验，确保输入合法后再进行数据转换和保存
   const validationResult = await agentRuntimeValidator.validate(agentForm)
@@ -432,14 +453,12 @@ const buildAgentSavePayload = async (): Promise<AgentConfigData | null> => {
   return {
     workspace: agentForm.workspace.trim(),
     model: agentForm.model.trim(),
-    maxTokens: normalizePositiveInteger(
-      agentForm.maxTokens,
-      DEFAULT_MAX_TOKENS
-    ),
+    maxTokens: normalizeNullablePositiveInteger(agentForm.maxTokens),
     temperature: normalizePositiveInteger(
       agentForm.temperature,
       DEFAULT_TEMPERATURE
     ),
+    reasoningEffort: agentForm.reasoningEffort,
     maxToolInteractions: normalizePositiveInteger(
       agentForm.maxToolInteractions,
       DEFAULT_MAX_TOOL_INTERACTIONS

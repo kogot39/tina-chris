@@ -1,4 +1,4 @@
-import { CustomLLMConfig } from '@/llm/lib/custom/customLLM'
+import { ApiKeyLLMConfig, type ReasoningEffort } from '@/llm'
 import { QQBotChannelConfig } from '@/channel/lib/qq/qqBotConfig'
 import { QwenSTTConfig } from '@/stt'
 import { QwenTTSConfig } from '@/tts/lib/qwen/qwenTTS'
@@ -15,8 +15,20 @@ class STTConfigs {
 }
 
 class LLMConfigs {
-  current: 'custom' | '' = ''
-  custom: CustomLLMConfig = new CustomLLMConfig()
+  current: string = ''
+  openai: ApiKeyLLMConfig = new ApiKeyLLMConfig()
+  anthropic: ApiKeyLLMConfig = new ApiKeyLLMConfig()
+  google: ApiKeyLLMConfig = new ApiKeyLLMConfig()
+  deepseek: ApiKeyLLMConfig = new ApiKeyLLMConfig()
+  mistral: ApiKeyLLMConfig = new ApiKeyLLMConfig()
+  groq: ApiKeyLLMConfig = new ApiKeyLLMConfig()
+  cerebras: ApiKeyLLMConfig = new ApiKeyLLMConfig()
+  xai: ApiKeyLLMConfig = new ApiKeyLLMConfig()
+  openrouter: ApiKeyLLMConfig = new ApiKeyLLMConfig()
+  'vercel-ai-gateway': ApiKeyLLMConfig = new ApiKeyLLMConfig()
+  minimax: ApiKeyLLMConfig = new ApiKeyLLMConfig()
+  moonshotai: ApiKeyLLMConfig = new ApiKeyLLMConfig()
+  fireworks: ApiKeyLLMConfig = new ApiKeyLLMConfig()
 }
 
 class ChannelConfigs {
@@ -61,13 +73,15 @@ export class SoulPromptConfig {
 // 2. 作为用户在配置界面中可以编辑的字段集合，用户可以通过界面修改这些字段来调整 Agent 的行为和输出。
 export class AgentConfig {
   workspace: string = ''
-  // 在这里指定模型名称，主要是部分供应商支持各种不同厂商的模型，
-  // 同时模型名在使用过程是作为chat接口的参数存在的，所以放在这里比较合适
-  model: string = ''
-  maxTokens: number = 8192
+  // 模型名称转移到 LLMConfigs 中，适应 pi-ai 的使用方式
+  // null 表示运行时不传 maxTokens，让 pi-ai/provider 使用自己的默认值。
+  maxTokens: number | null = null
   temperature: number = 0.7
+  // reasoningEffort 只是用户偏好。运行时会再读取 pi-ai 的 model.reasoning
+  // 和支持的 thinking levels；不支持时不会传入 reasoning 参数。
+  reasoningEffort: ReasoningEffort = 'off'
   maxToolInteractions: number = 20
-
+  // 可自定义的系统提示词模板
   userProfile: AgentUserProfileConfig = new AgentUserProfileConfig()
   agentPrompt: AgentPromptConfig = new AgentPromptConfig()
   soulPrompt: SoulPromptConfig = new SoulPromptConfig()

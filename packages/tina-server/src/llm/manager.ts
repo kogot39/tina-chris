@@ -1,156 +1,204 @@
-import { BaseLLM, type ChatArguments } from './lib/base'
 import {
-  CustomLLM,
-  type CustomLLMConfig,
-  getCustomLLMConfigForm,
-} from './lib/custom/customLLM'
+  type LLMFactoryConfig,
+  type LLMProvider,
+  type LLMProviderKey,
+  piProvidersMap,
+} from './piProviders'
+import { completeSimple, streamSimple } from '@mariozechner/pi-ai'
 
+import type {
+  LLMCallArguments,
+  LLMEventCallbacks,
+  LLMStreamArguments,
+} from './piLLM'
+import type {
+  Api,
+  AssistantMessageEvent,
+  Model,
+  SimpleStreamOptions,
+} from '@mariozechner/pi-ai'
 import type { DynamicFormSchema } from '@tina-chris/tina-ui'
 
 import { Config } from '@/config'
 
-// 目前仅适配 custom 这一类 OpenAI-compatible 的 LLM 配置；
-// 后续新增 provider 时，只需要在这里扩展联合类型与映射表。
-type LLMFactoryConfig = CustomLLMConfig
-
-export type LLMProvider = {
-  title: string
-  description: string
-  create: (config: LLMFactoryConfig) => BaseLLM
-  form: () => DynamicFormSchema
-}
-// LLMMap 是一个静态映射表，定义了每个 provider key 对应的显示信息、实例化函数和配置表单函数；
-const LLMMap = {
-  custom: {
-    title: 'Custom LLM',
-    description:
-      '基于 OpenAI 接口规范的自定义大模型接入，可配置 API Key 与 API Base 接入兼容服务。',
-    create: (config: LLMFactoryConfig) =>
-      new CustomLLM(config as CustomLLMConfig),
-    form: () => getCustomLLMConfigForm(),
-  },
-} as const satisfies Record<string, LLMProvider>
-
-export type LLMProviderKey = keyof typeof LLMMap
-
-// LLMManager 只负责把 AgentLoop 传入的上下文/工具/推理参数交给当前 provider。
-// 因此这里不主动读取总线消息，也不承担 session/history 的组织职责。
-export type LLMManagerChatArguments = ChatArguments
-
-// 获取可用的 LLM provider 列表，供前端展示选择。
 export const getAvailableLLMs = () => {
-  return Object.entries(LLMMap).map(([key, value]) => ({
+  return Object.entries(piProvidersMap).map(([key, value]) => ({
     key,
     title: value.title,
     description: value.description,
   }))
 }
-// 根据 provider key 获取对应的配置表单 schema，供前端动态渲染配置界面使用。
+
 export const getLLMConfigFormByKey = (
   key: string
 ): DynamicFormSchema | null => {
-  const provider = LLMMap[key as LLMProviderKey]
-  if (!provider) {
-    return null
-  }
-
-  return provider.form()
+  const provider = piProvidersMap[key as LLMProviderKey]
+  return provider ? provider.form() : null
 }
 
 export class LLMManager {
-  // 运行时总配置对象，仅用于读取当前启用的 LLM provider 及其配置。
-  private config: Config
-  // LLM 本身没有按 session 隔离实例的需求，只缓存“当前 provider”的实例即可。
-  private currentInstance: BaseLLM | null = null
+  private currentInstance: Model<Api> | null = null
   private currentProviderKey = ''
 
-  constructor(config: Config) {
-    this.config = config
+  constructor(private config: Config) {}
+
+  private buildOptions(
+    model: Model<Api>,
+    args: LLMCallArguments
+  ): SimpleStreamOptions {
+    const options: SimpleStreamOptions = {
+      // getCurrentInstance 已经检查过 provider 和 config 的有效性，这里直接取 apiKey 就行
+      apiKey: this.getCurrentProviderConfig()?.apiKey,
+      temperature: args.temperature,
+      signal: args.signal,
+      sessionId: args.sessionId,
+    }
+
+    // maxTokens=null 的约定是“完全不传”，让 provider 使用默认配置；
+    // 因此只有用户明确填写了有限数字时才放进 options
+    if (typeof args.maxTokens === 'number' && Number.isFinite(args.maxTokens)) {
+      options.maxTokens = args.maxTokens
+    }
+
+    // 检查思考模式支持性
+    if (
+      args.reasoningEffort &&
+      args.reasoningEffort !== 'off' &&
+      model.reasoning
+    ) {
+      options.reasoning = args.reasoningEffort
+    }
+
+    return options
   }
 
   private getCurrentProviderKey(): string {
     return this.config.llm.current
   }
-  // 获取当前启用的 provider 实例，如果配置不完整或未启用则返回 null。
+
   private getCurrentProvider(): LLMProvider | null {
     const current = this.getCurrentProviderKey()
-    if (!current) return null
-
-    return LLMMap[current as LLMProviderKey] ?? null
+    return current ? (piProvidersMap[current as LLMProviderKey] ?? null) : null
   }
-  // 获取当前 provider 的配置项，供实例化时使用；如果 provider 配置不完整则返回 null。
+
   private getCurrentProviderConfig(): LLMFactoryConfig | null {
     const provider = this.getCurrentProvider()
     if (!provider) return null
 
     const config = this.config.getConfig('llm')
-    if (!config) return null
-
-    return config as LLMFactoryConfig
+    return config ? (config as LLMFactoryConfig) : null
   }
-  // 根据当前配置的 provider key 获取对应的 LLM 实例，如果实例已存在且 provider 未变化则复用，否则创建新实例。
-  private getCurrentInstance(): BaseLLM | null {
+
+  private getCurrentInstance(): Model<Api> {
     const provider = this.getCurrentProvider()
     const providerConfig = this.getCurrentProviderConfig()
     const providerKey = this.getCurrentProviderKey()
 
     if (!provider || !providerConfig || !providerKey) {
-      return null
+      throw new Error('LLM service is not configured.')
     }
 
-    // 当 provider 未变化时复用实例，避免频繁重建底层 SDK client。
+    // LLM 实例只按当前 provider 缓存。保存 LLM 配置后 desktop main 会调用 reset()，
+    // 这样同一 provider 的 API Key/API Base 更新也能在下一次请求重新实例化。
     if (this.currentInstance && this.currentProviderKey === providerKey) {
       return this.currentInstance
     }
 
     this.currentInstance = provider.create(providerConfig)
     this.currentProviderKey = providerKey
-
     return this.currentInstance
   }
 
   getCurrentLLMConfigForm(): DynamicFormSchema | null {
-    const provider = this.getCurrentProvider()
-    if (!provider) {
-      return null
-    }
-
-    return provider.form()
+    return this.getCurrentProvider()?.form() ?? null
   }
 
-  async chat({
-    messages,
-    tools = [],
-    model,
-    maxTokens,
-    temperature,
-    stream = false,
-    streamId,
-    onChunk,
-  }: LLMManagerChatArguments) {
-    const instance = this.getCurrentInstance()
-    if (!instance) {
-      throw new Error('LLM service is not configured.')
+  async stream(args: LLMStreamArguments) {
+    // 这里先使用统一接口简化实现
+    // TODO: 后续根据不同 provider 的能力差异，增加更细粒度的 stream/complete 实现，充分利用 pi-ai 。
+    const eventStream = streamSimple(
+      this.getCurrentInstance(),
+      args.context,
+      this.buildOptions(this.getCurrentInstance(), args)
+    )
+
+    // pi-ai 的 AssistantMessageEventStream 同时是 async iterable 和最终结果容器。
+    // Manager 在这里消费事件并分发回调，最后仍返回 eventStream.result()
+    // 得到完整 AssistantMessage，供 loop 落盘和工具轮次判断。
+    for await (const event of eventStream) {
+      await this.dispatchEvent(event, args.callbacks)
     }
 
-    // AgentLoop 会在上层组织完整的上下文、工具定义与推理参数；
-    // 这里仅做最薄的一层 provider 转发与当前实例选择。
-    return instance.chat({
-      messages,
-      tools,
-      model,
-      maxTokens,
-      temperature,
-      stream,
-      streamId,
-      onChunk,
-    })
+    return eventStream.result()
   }
 
-  // 当用户在设置页切换 provider 或修改认证信息后，显式清空缓存实例。
-  // 后续第一次 chat 时会按最新配置重新创建 provider。
+  complete(args: LLMCallArguments) {
+    return completeSimple(
+      this.getCurrentInstance(),
+      args.context,
+      this.buildOptions(this.getCurrentInstance(), args)
+    )
+  }
+
   reset(): void {
     this.currentInstance = null
     this.currentProviderKey = ''
+  }
+
+  private async dispatchEvent(
+    event: AssistantMessageEvent,
+    callbacks: LLMEventCallbacks | undefined
+  ): Promise<void> {
+    // onEvent 是调试/日志用的总入口，随后再分派到语义化事件回调。
+    // 这样调用方既可以订阅所有 pi-ai 原始事件，也可以只关心某一类增量。
+    await callbacks?.onEvent?.(event)
+
+    switch (event.type) {
+      case 'start':
+        await callbacks?.onStart?.(event)
+        break
+      case 'text_start':
+        await callbacks?.onTextStart?.(event)
+        break
+      case 'text_delta':
+        await callbacks?.onTextDelta?.(event)
+        break
+      case 'text_end':
+        await callbacks?.onTextEnd?.(event)
+        break
+      case 'thinking_start':
+        await callbacks?.onThinkingStart?.(event)
+        break
+      case 'thinking_delta':
+        await callbacks?.onThinkingDelta?.(event)
+        break
+      case 'thinking_end':
+        await callbacks?.onThinkingEnd?.(event)
+        break
+      case 'toolcall_start':
+        await callbacks?.onToolCallStart?.(event)
+        break
+      case 'toolcall_delta':
+        await callbacks?.onToolCallDelta?.(event)
+        break
+      case 'toolcall_end':
+        await callbacks?.onToolCallEnd?.(event)
+        break
+      case 'done':
+        await callbacks?.onDone?.(event)
+        break
+      case 'error':
+        // pi-ai 用 error event 承载 error 和 aborted 两种终止；Tina 额外触发
+        // onAborted，避免业务层把用户主动停止当成真正故障处理。
+        if (event.reason === 'aborted') {
+          await callbacks?.onAborted?.(event)
+        }
+        await callbacks?.onError?.(event)
+        break
+      default: {
+        const _exhaustive: never = event
+        return _exhaustive
+      }
+    }
   }
 }
