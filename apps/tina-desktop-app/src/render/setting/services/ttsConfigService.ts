@@ -27,6 +27,10 @@ export const saveTTSConfig = (
   return window.electronAPI.saveTTSConfig(providerKey, values)
 }
 
+export const setTTSEnabled = (providerKey: string, enabled: boolean) => {
+  return window.electronAPI.setTTSEnabled(providerKey, enabled)
+}
+
 export const getTTSVoiceCloneForm = (
   providerKey: string
 ): Promise<DynamicFormSchema> => {

@@ -40,7 +40,7 @@ export const useSttConfigForm = () => {
     submitting.value = true
     try {
       const result = await saveSTTConfig(providerKey, nextValues)
-      currentProvider.value = result.current || providerKey
+      currentProvider.value = result.current || ''
       updateValues(nextValues)
       return result
     } finally {

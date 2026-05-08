@@ -86,11 +86,12 @@ const createUserContextMessage = (
 const createUserDisplayMessage = (
   id: string,
   content: string,
+  type: 'user' | 'speech_text',
   turnId: string,
   timestamp: number
 ): SessionDisplayMessage => ({
   id,
-  type: 'user',
+  type,
   content,
   status: 'complete',
   timestamp,
@@ -299,19 +300,30 @@ export class AgentLoop {
     // Channel 分流：desktop 走 stream（实时推送事件 + TTS），远程走 complete（一次性响应）
     const shouldStream = message.channel === 'desktop'
 
-    // 构造用户消息的"双重形态"
-    const userTimestamp = Date.now()
+    // 构造用户消息的"双重形态"。
+    // 语音输入的展示气泡先由 STTManager 流式发布，最终文本再作为内部消息交给 AgentLoop。
+    // 这里复用 STTManager 传来的 id/timestamp，保证实时 UI、session JSONL、历史回放指向同一条语音消息。
+    const isSpeechTextInput = message?.metadata?.type === 'speech_text'
+    const speechDisplayMessageId =
+      typeof message.metadata?.displayMessageId === 'string'
+        ? message.metadata.displayMessageId
+        : null
+    const userTimestamp = isSpeechTextInput ? message.timestamp : Date.now()
     const userContextMessage = createUserContextMessage(content, userTimestamp)
+
     const userDisplayMessage = createUserDisplayMessage(
-      randomUUID(),
+      speechDisplayMessageId ?? randomUUID(),
       content,
+      // 额外 STT 内容处理
+      isSpeechTextInput ? 'speech_text' : 'user',
       randomUUID(), // turnId：每轮对话一个唯一 id，用于后续按轮分组重建 context
       userTimestamp
     )
     // sessionMessages 是最终写入 JSONL 的消息合集（本轮的 user + assistant + tool + reasoning）
     const sessionMessages: SessionDisplayMessage[] = [userDisplayMessage]
 
-    if (shouldStream) {
+    // 流式部分已经给到桌面端了， STT 消息不再返回做展示
+    if (shouldStream && !isSpeechTextInput) {
       // 桌面端不本地乐观插入 user 消息，而是等 AgentLoop 回发确认。
       // 这样 UI、bus、JSONL 中的 id/timestamp 都来自服务端同一份对象。
       this.publishSessionDisplayMessage(message, userDisplayMessage)

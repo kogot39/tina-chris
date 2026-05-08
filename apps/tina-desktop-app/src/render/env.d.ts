@@ -13,10 +13,12 @@ import type {
   GetSessionMessagesInput,
   LLMProviderItem,
   LLMSaveResult,
+  STTEnabledResult,
   STTProviderItem,
   STTSaveResult,
   SessionMessagesPage,
   StoredModelItem,
+  TTSEnabledResult,
   TTSProviderItem,
   TTSSaveResult,
   TTSVoiceCloneItem,
@@ -85,6 +87,10 @@ declare global {
       providerKey: string,
       values: Record<string, unknown>
     ) => Promise<STTSaveResult>
+    setSTTEnabled: (
+      providerKey: string,
+      enabled: boolean
+    ) => Promise<STTEnabledResult>
     listTTSProviders: () => Promise<TTSProviderItem[]>
     getCurrentTTSProvider: () => Promise<string>
     getTTSConfigForm: (providerKey: string) => Promise<DynamicFormSchema>
@@ -95,6 +101,10 @@ declare global {
       providerKey: string,
       values: Record<string, unknown>
     ) => Promise<TTSSaveResult>
+    setTTSEnabled: (
+      providerKey: string,
+      enabled: boolean
+    ) => Promise<TTSEnabledResult>
     getTTSVoiceCloneForm: (providerKey: string) => Promise<DynamicFormSchema>
     createTTSVoiceClone: (
       providerKey: string,

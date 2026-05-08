@@ -19,7 +19,7 @@
           :messages="messages"
           :has-more="historyHasMore"
           :loading-more="historyLoading"
-          :disable-input="isPlaying"
+          :disable-input="isRunning"
           @send-message="sendMessage"
           @close-callback="hideChatPanel"
           @load-more="loadMoreSessionMessages"
@@ -30,7 +30,7 @@
       <template #model="{ isResizing }">
         <ModelLayout
           :direction="place"
-          :is-active="isResizing || showChat || isRecording || isPlaying"
+          :is-active="isResizing || showChat || isRecording || isRunning"
         >
           <Model
             :model-src="modelUrl"
@@ -47,7 +47,7 @@
               <IconButton
                 tooltip="录音"
                 :need-active-color="true"
-                :disabled="isPlaying"
+                :disabled="isRunning"
                 @after-active="handleStartRecording"
                 @after-deactive="handleStopRecording"
               >
@@ -88,8 +88,8 @@
           <template #big-btn>
             <div ref="bigButtonRef" class="h-full w-full">
               <VoicePlayButton
-                v-if="isPlaying"
-                :is-playing="false"
+                v-if="isRunning || isPlaying"
+                :is-playing="isPlaying"
                 @click="abortAgentResponse"
               />
               <VoiceRecordButton v-else-if="isRecording" :wave="waveformData" />
@@ -298,24 +298,29 @@ const {
   initMessages,
   prependMessages,
 } = useMessage() // 消息管理
-const { pushAudio, startRecording, stopRecording, isRecording } = useAudio(
-  (chunck) => {
-    // 接收到音频数据后，交给主线程发送到总线上
+const {
+  pushAudio,
+  startRecording,
+  stopRecording,
+  stopPlaying,
+  isRecording,
+  isPlaying,
+} = useAudio((chunck) => {
+  // 接收到音频数据后，交给主线程发送到总线上
 
-    // 将 Int16Array 转换为 ArrayBuffer
-    const buffer = new ArrayBuffer(chunck.byteLength)
-    new Int16Array(buffer).set(chunck)
+  // 将 Int16Array 转换为 ArrayBuffer
+  const buffer = new ArrayBuffer(chunck.byteLength)
+  new Int16Array(buffer).set(chunck)
 
-    window.electronAPI.sendAudioInboundMessage(buffer)
-  }
-)
+  window.electronAPI.sendAudioInboundMessage(buffer)
+})
 
 const DESKTOP_SESSION_KEY = 'desktop:default'
 const HISTORY_PAGE_SIZE = 50
 const historyCursor = ref<number | null>(null)
 const historyLoading = ref(false)
 const historyHasMore = ref(false)
-const isPlaying = ref(false)
+const isRunning = ref(false)
 
 const loadInitialSessionMessages = async () => {
   historyLoading.value = true
@@ -362,6 +367,7 @@ const loadMoreSessionMessages = async () => {
 
 const handleStartRecording = () => {
   // 通知 STT 开启连接
+  stopPlaying()
   window.electronAPI.sendAudioInboundMessageStart()
   // 开始录音时启动绘制循环，实时可视化音频波形
   startRecording(drawLoop)
@@ -380,6 +386,7 @@ const sendMessage = async (content: string) => {
   }
 
   try {
+    stopPlaying() // 如果正在播放 Agent 回复，优先停止播放，避免语音和文本回复冲突
     await window.electronAPI.sendTextInboundMessage(nextContent)
   } catch (error) {
     const message =
@@ -389,13 +396,19 @@ const sendMessage = async (content: string) => {
 }
 
 const abortAgentResponse = async () => {
-  isPlaying.value = false
-  try {
-    await window.electronAPI.abortAgentResponse()
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : '中止 Agent 回复失败'
-    toast.error?.(message)
+  if (isPlaying.value) {
+    stopPlaying()
+  }
+  // 只有在 Agent 正在回复时才允许中止操作，避免误触导致的消息状态混乱
+  if (isRunning.value) {
+    isRunning.value = false
+    try {
+      await window.electronAPI.abortAgentResponse()
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '中止 Agent 回复失败'
+      toast.error?.(message)
+    }
   }
 }
 
@@ -453,11 +466,11 @@ const applyDisplayMessage = (message: {
 
   // STT 文本没有 displayType，它是语音识别过程的展示消息；timestamp 仍然使用
   // 主进程/服务端发来的 bus timestamp，不在渲染进程重新 Date.now()。
-  if (message.senderId === 'stt-manager' && message.type === 'text') {
+  if (displayType === 'speech_text') {
     addSpeechTextMessage({
       id,
       content: message.content,
-      status: 'complete',
+      status: toTextMessageStatus(displayStatus),
       timestamp,
     })
     return
@@ -573,11 +586,11 @@ onMounted(() => {
 
     // AgentLoop 发的响应生命周期信号，不进入消息列表
     if (message.senderId === 'agent' && message.type === 'response_start') {
-      isPlaying.value = true
+      isRunning.value = true
       return
     }
     if (message.senderId === 'agent' && message.type === 'response_end') {
-      isPlaying.value = false
+      isRunning.value = false
       return
     }
 

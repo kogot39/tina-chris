@@ -6,8 +6,7 @@
     <div
       class="chat-bubble max-w-[85%] border border-info/30 bg-base-100 text-base-content whitespace-pre-wrap wrap-break-word"
     >
-      <template v-if="message.content">{{ message.content }}</template>
-      <span v-else class="opacity-60">等待识别内容</span>
+      {{ message.content }}
       <span
         v-if="message.status === 'streaming'"
         class="loading loading-dots loading-xs ml-1 align-middle"

@@ -106,11 +106,12 @@ const TTSMap = {
 
 export type TTSProviderKey = keyof typeof TTSMap
 
-export const getAvailableTTSs = () => {
+export const getAvailableTTSs = (config?: Config) => {
   return Object.entries(TTSMap).map(([key, value]) => ({
     key,
     title: value.title,
     description: value.description,
+    enabled: config?.tts.current === key,
   }))
 }
 

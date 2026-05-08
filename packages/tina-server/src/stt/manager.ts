@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { BaseSTT } from './lib/base'
 import { QwenSTT, QwenSTTConfig, getQwenConfigForm } from './lib/qwen/qwenSTT'
 import {
@@ -25,6 +26,14 @@ export type STTProvider = {
 
 const STT_MANAGER_TARGET = 'stt-manager'
 
+type STTSessionTranscriptState = {
+  id: string
+  content: string
+  status: 'complete' | 'streaming'
+  timestamp: number
+  submittedToAgent: boolean
+}
+
 const STTMap = {
   qwen: {
     title: 'Qwen STT',
@@ -37,11 +46,12 @@ const STTMap = {
 
 export type STTProviderKey = keyof typeof STTMap
 
-export const getAvailableSTTs = () => {
+export const getAvailableSTTs = (config?: Config) => {
   return Object.entries(STTMap).map(([key, value]) => ({
     key,
     title: value.title,
     description: value.description,
+    enabled: config?.stt.current === key,
   }))
 }
 
@@ -58,6 +68,7 @@ export const getSTTConfigFormByKey = (
 
 export class STTManager {
   private sessionInstances = new Map<string, BaseSTT>()
+  private sessionTranscripts = new Map<string, STTSessionTranscriptState>()
   private config: Config
   private bus: MessageBus
 
@@ -122,21 +133,16 @@ export class STTManager {
     }
 
     const instance = provider.create(config)
-    instance.setTranscriptHandler((transcript: string) => {
-      // 将识别到的文本通过消息总线发布出去，供前端显示
-      this.publish(message, 'text', transcript)
-      // 同时也发布一个内部消息，供其他模块（如Agent）使用识别结果进行后续处理
-      this.bus.publishInbound(
-        new InboundMessage({
-          channel: message.channel,
-          chatId: message.chatId,
-          senderId: STT_MANAGER_TARGET,
-          content: transcript,
-          type: 'text',
-          sendTo: 'agent',
-        })
-      )
-    })
+    instance.setTranscriptHandler(
+      (transcript: string, status: 'complete' | 'streaming') => {
+        const state = this.sessionTranscripts.get(message.sessionKey)
+        if (!state) {
+          return
+        }
+        // 流式和最终识别结果都使用同一个展示 id，桌面端可以稳定 upsert 同一条语音文本消息。
+        this.publishTranscript(message, state, transcript, status)
+      }
+    )
     // 设置错误处理器，任何STT实例发生的错误都会通过这个处理器捕获，并发布一个错误消息，供前端显示
     instance.setErrorHandler((error: Error) => {
       this.publish(message, 'error', `STT error: ${error.message}`)
@@ -155,8 +161,10 @@ export class STTManager {
       return existing
     }
 
+    this.getOrCreateTranscriptState(sessionKey)
     const instance = this.createSessionInstance(message)
     if (!instance) {
+      this.sessionTranscripts.delete(sessionKey)
       return null
     }
 
@@ -173,6 +181,7 @@ export class STTManager {
         `Failed to connect STT provider: ${reason}`
       )
       await instance.close().catch(() => undefined)
+      this.sessionTranscripts.delete(sessionKey)
       return null
     }
   }
@@ -183,7 +192,13 @@ export class STTManager {
     if (this.sessionInstances.has(sessionKey)) {
       return
     }
-
+    this.sessionTranscripts.set(sessionKey, {
+      id: randomUUID(),
+      content: '',
+      status: 'streaming',
+      timestamp: Date.now(),
+      submittedToAgent: false,
+    })
     await this.ensureSession(message)
   }
 
@@ -217,17 +232,104 @@ export class STTManager {
     const sessionKey = message.sessionKey
     const instance = this.sessionInstances.get(sessionKey)
     if (!instance) {
+      this.sessionTranscripts.delete(sessionKey)
       return
     }
 
     this.sessionInstances.delete(sessionKey)
     try {
+      // Manual 模式下 close() 只负责触发 provider 内部的 commit/finish 流程。
+      // 最终文本必须由 provider 的 complete 回调统一发送，避免这里再用
+      // streaming preview 兜底补发而造成重复或错误提交。
       await instance.close()
     } catch (error) {
       const reason =
         error instanceof Error ? error.message : 'Unknown close error.'
       this.publish(message, 'error', `Failed to close STT session: ${reason}`)
     }
+
+    this.sessionTranscripts.delete(sessionKey)
+  }
+
+  private getOrCreateTranscriptState(
+    sessionKey: string
+  ): STTSessionTranscriptState {
+    const existing = this.sessionTranscripts.get(sessionKey)
+    if (existing) {
+      return existing
+    }
+
+    const state = {
+      id: randomUUID(),
+      content: '',
+      status: 'streaming' as const,
+      timestamp: Date.now(),
+      submittedToAgent: false,
+    }
+    this.sessionTranscripts.set(sessionKey, state)
+    return state
+  }
+
+  private publishTranscript(
+    message: InboundMessage,
+    state: STTSessionTranscriptState,
+    content: string,
+    status: 'complete' | 'streaming'
+  ): void {
+    const timestamp = Date.now()
+    state.content = content
+    state.status = status
+    state.timestamp = timestamp
+
+    // Qwen 的 streaming 回调是当前完整预览，complete 回调才是最终识别结果。
+    // UI 每次都收到同一个 id 的 upsert；Agent 只接收第一次非空 complete，
+    // 防止 provider 重放 completed 事件时触发两轮对话。
+    if (status === 'complete' && state.submittedToAgent) {
+      return
+    }
+
+    this.bus.publishOutbound(
+      new OutboundMessage({
+        channel: message.channel,
+        chatId: message.chatId,
+        senderId: STT_MANAGER_TARGET,
+        timestamp,
+        content,
+        type: 'text',
+        metadata: {
+          id: state.id,
+          displayStatus: status,
+          displayType: 'speech_text',
+        },
+      })
+    )
+
+    if (status !== 'complete') {
+      return
+    }
+
+    const finalContent = content.trim()
+    if (!finalContent) {
+      return
+    }
+
+    state.submittedToAgent = true
+    this.bus.publishInbound(
+      new InboundMessage({
+        channel: message.channel,
+        chatId: message.chatId,
+        senderId: STT_MANAGER_TARGET,
+        timestamp,
+        content: finalContent,
+        type: 'text',
+        sendTo: 'agent',
+        metadata: {
+          type: 'speech_text',
+          // AgentLoop 会复用这个展示 id 落盘，保证实时语音气泡和历史记录是同一条消息。
+          displayMessageId: state.id,
+        },
+      })
+    )
   }
 
   private publish(
@@ -266,6 +368,7 @@ export class STTManager {
     )
 
     this.sessionInstances.clear()
+    this.sessionTranscripts.clear()
     await Promise.all(closingTasks)
   }
 }

@@ -25,7 +25,6 @@ import type {
 } from '@tina-chris/tina-ui'
 
 const toast = inject<any>('toast')
-const modal = inject<any>('modal')
 const route = useRoute()
 const router = useRouter()
 
@@ -34,16 +33,8 @@ const providerKey = computed(() => {
   return String(route.params.providerKey || '')
 })
 
-const {
-  currentProvider,
-  loading,
-  schema,
-  submitting,
-  values,
-  load,
-  save,
-  updateValues,
-} = useSttConfigForm()
+const { loading, schema, submitting, values, load, save, updateValues } =
+  useSttConfigForm()
 
 const loadForm = async () => {
   const key = providerKey.value
@@ -64,7 +55,7 @@ const loadForm = async () => {
 
 const saveForm = async (nextValues: DynamicFormValues) => {
   await save(providerKey.value, nextValues)
-  toast.success?.('STT 配置保存成功，将在下次会话时生效。')
+  toast.success?.('STT 配置已保存，可在平台卡片开关中启用。')
 }
 
 const handleSubmit = async (payload: DynamicFormSubmitPayload) => {
@@ -72,18 +63,6 @@ const handleSubmit = async (payload: DynamicFormSubmitPayload) => {
     toast.error?.('无效的 STT 平台标识')
     return
   }
-  // 如果当前已经选中的提供商与即将保存的提供商不同，提示用户确认切换平台可能导致配置项变化
-  if (currentProvider.value && currentProvider.value !== providerKey.value) {
-    modal.warning?.('切换 STT 平台后将以新平台配置为准，是否继续？', {
-      confirmText: '继续保存',
-      cancelText: '取消',
-      onConfirm: async () => {
-        await saveForm(payload.values)
-      },
-    })
-    return
-  }
-
   try {
     await saveForm(payload.values)
   } catch (error) {

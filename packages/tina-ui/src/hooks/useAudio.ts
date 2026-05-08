@@ -9,23 +9,30 @@ import { AudioCapture } from '../utils/audio/capture'
 import { createAudioPlayback } from '../utils/audio/playback'
 
 export function useAudio(captureCallback?: (chunk: Int16Array) => void) {
-  const audioCapture = new AudioCapture() // 之前返回普通对象，现改为 Class 实例
-  const audioPlayback = createAudioPlayback()
+  const audioCapture = new AudioCapture()
+  const audioPlayback = createAudioPlayback({
+    onEnd: () => {
+      isPlaying.value = false
+    },
+  })
 
   const isRecording = ref(false)
-  const isPlaying = ref(false) // 这里可以根据 audioPlayback 内部状态扩展
+  const isPlaying = ref(false)
 
   // 发送音频至服务器
   const handleAudioChunk = (chunk: Int16Array) => {
-    // 这里直接通过回调导出音频数据，由外部组件决定如何处理
     if (captureCallback) {
       captureCallback(chunk)
     }
   }
 
+  // 提前预热：加载 ONNX 模型、获取麦克风权限，避免用户点击后的冷启动延迟
+  audioCapture.prewarm({ onSendCallback: handleAudioChunk })
+
   // 开始录音函数，接收绘制回调
   const startRecording = async (drawLoop?: (dataArray: Uint8Array) => void) => {
     try {
+      // 首次调用时 vad 已预热完成，init 仅更新回调引用（即刻返回）
       await audioCapture.init({
         onSendCallback: handleAudioChunk,
       })

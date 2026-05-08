@@ -2,10 +2,17 @@ export type TTSProviderItem = {
   key: string
   title: string
   description: string
+  enabled: boolean
 }
 
 export type TTSSaveResult = {
   current: string
+}
+
+export type TTSEnabledResult = {
+  providerKey: string
+  current: string
+  enabled: boolean
 }
 
 export type TTSVoiceCloneItem = {

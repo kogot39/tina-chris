@@ -1,9 +1,5 @@
 <template>
-  <div
-    v-if="!props.isPlaying"
-    class="tooltip tooltip-info"
-    data-tip="思考中..."
-  >
+  <div v-if="!props.isPlaying" class="tooltip tooltip-info" data-tip="打断回复">
     <button type="button" class="btn btn-square btn-primary btn-dash text-2xl">
       <span class="flex items-center gap-1">
         <span

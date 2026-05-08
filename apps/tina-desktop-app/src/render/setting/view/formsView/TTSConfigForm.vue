@@ -133,7 +133,6 @@ const {
   cloneSubmitting,
   cloneValues,
   createVoiceClone,
-  currentProvider,
   deleteVoiceClone,
   load,
   loading,
@@ -205,23 +204,12 @@ const loadForm = async () => {
 
 const saveForm = async (nextValues: DynamicFormValues) => {
   await save(providerKey.value, nextValues)
-  toast.success?.('TTS 配置保存成功，将在下一次语音输出时生效。')
+  toast.success?.('TTS 配置已保存，可在平台卡片开关中启用。')
 }
 
 const handleSubmit = async (payload: DynamicFormSubmitPayload) => {
   if (!providerKey.value) {
     toast.error?.('无效的 TTS 平台标识')
-    return
-  }
-
-  if (currentProvider.value && currentProvider.value !== providerKey.value) {
-    modal.warning?.('切换 TTS 平台后将以新平台配置为准，是否继续？', {
-      confirmText: '继续保存',
-      cancelText: '取消',
-      onConfirm: async () => {
-        await saveForm(payload.values)
-      },
-    })
     return
   }
 

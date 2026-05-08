@@ -13,15 +13,12 @@ import type {
   QwenServerMessage,
   QwenSessionConfig,
   QwenSessionFinishEvent,
-  QwenTurnDetection,
 } from './api-types'
 
 // 可配置内容，放入 Config 中
 export class QwenSTTConfig {
   apiKey: string = ''
   language: QwenLanguage = 'zh'
-  threshold: number = 0.2
-  silenceDurationMs: number = 800
 }
 
 export function getQwenConfigForm(): DynamicFormSchema {
@@ -87,34 +84,6 @@ export function getQwenConfigForm(): DynamicFormSchema {
           ],
         },
       },
-      {
-        name: 'threshold',
-        type: 'input',
-        label: 'VAD 阈值',
-        hint: '阈值范围 -1.0 - 1.0，默认 0.2',
-        valueType: 'number',
-        defaultValue: 0.2,
-        componentProps: {
-          type: 'number',
-          min: -1,
-          max: 1,
-          step: 0.05,
-        },
-      },
-      {
-        name: 'silenceDurationMs',
-        type: 'input',
-        label: '静音判定时长(ms)',
-        hint: '设置范围 200ms - 6000ms，默认 800ms',
-        valueType: 'number',
-        defaultValue: 800,
-        componentProps: {
-          type: 'number',
-          min: 200,
-          step: 100,
-          max: 6000,
-        },
-      },
     ],
   }
 }
@@ -132,7 +101,6 @@ export class QwenSTT extends BaseSTT {
   // 先配合前端输入音频的设置统一采样率
   private readonly sampleRate = 16000
   private language: QwenLanguage
-  private turnDetection: QwenTurnDetection
 
   private _sessionFinishedPromise: Promise<void> | null = null
   private _sessionFinishedResolver: (() => void) | null = null
@@ -198,14 +166,7 @@ export class QwenSTT extends BaseSTT {
     this.model = 'qwen3-asr-flash-realtime'
     this.inputAudioFormat = 'pcm'
     this.language = config.language
-
-    this.turnDetection = {
-      type: 'server_vad',
-      threshold: config.threshold,
-      silence_duration_ms: config.silenceDurationMs,
-    }
-
-    this.isManualMode = false
+    this.isManualMode = true
   }
 
   async connect(): Promise<void> {
@@ -243,10 +204,17 @@ export class QwenSTT extends BaseSTT {
       return
     }
 
-    const graceful = true
-    const timeoutMs = 3000
+    const timeoutMs = 10_000
 
-    if (graceful && ws.readyState === WebSocket.OPEN) {
+    if (ws.readyState === WebSocket.OPEN) {
+      // Manual 模式由客户端明确控制语音边界：先 commit 当前音频缓冲区，
+      // 让服务端创建本轮 input_audio item，再发送 session.finish 结束会话。
+      // 如果直接断开或只 finish，最终 completed 转写可能来不及返回。
+      this.sendClientEvent(ws, {
+        event_id: this.createEventId(),
+        type: 'input_audio_buffer.commit',
+      })
+
       const finishEvent: QwenSessionFinishEvent = {
         event_id: this.createEventId(),
         type: 'session.finish',
@@ -254,6 +222,8 @@ export class QwenSTT extends BaseSTT {
       this.sendClientEvent(ws, finishEvent)
 
       if (this._sessionFinishedPromise) {
+        // 文档约定 completed 会先于 session.finished 返回；等到 finished 后再 close，
+        // 可以保证 transcriptHandler('complete') 有机会先把最终文本交给 manager。
         await Promise.race([
           this._sessionFinishedPromise,
           new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
@@ -276,7 +246,9 @@ export class QwenSTT extends BaseSTT {
       input_audio_transcription: {
         language: this.language,
       },
-      turn_detection: this.turnDetection,
+      // turn_detection 为 null 才会关闭服务端 VAD，启用 Qwen Manual 模式。
+      // 录音按钮的松开动作就是语句边界，因此断句由客户端控制更稳定。
+      turn_detection: null,
     }
   }
 
@@ -301,7 +273,15 @@ export class QwenSTT extends BaseSTT {
       case 'conversation.item.input_audio_transcription.completed': {
         const transcript = message.transcript.trim()
         if (transcript) {
-          this.transcriptHandler(transcript)
+          this.transcriptHandler(transcript, 'complete')
+        }
+        break
+      }
+      // 增加流式识别结果的处理，实时返回用户语音中的文本内容
+      case 'conversation.item.input_audio_transcription.text': {
+        const transcript = `${message.text}${message.stash}`.trim()
+        if (transcript) {
+          this.transcriptHandler(transcript, 'streaming')
         }
         break
       }

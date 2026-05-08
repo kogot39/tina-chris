@@ -71,7 +71,7 @@ export const useTtsConfigForm = () => {
     submitting.value = true
     try {
       const result = await saveTTSConfig(providerKey, nextValues)
-      currentProvider.value = result.current || providerKey
+      currentProvider.value = result.current || ''
       updateValues(nextValues)
       return result
     } finally {

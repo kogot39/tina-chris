@@ -12,10 +12,12 @@ import type {
   GetSessionMessagesInput,
   LLMProviderItem,
   LLMSaveResult,
+  STTEnabledResult,
   STTProviderItem,
   STTSaveResult,
   SessionMessagesPage,
   StoredModelItem,
+  TTSEnabledResult,
   TTSProviderItem,
   TTSSaveResult,
   TTSVoiceCloneItem,
@@ -149,6 +151,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       providerKey,
       values
     ) as Promise<STTSaveResult>,
+  setSTTEnabled: (providerKey: string, enabled: boolean) =>
+    ipcRenderer.invoke(
+      'stt:set-enabled',
+      providerKey,
+      enabled
+    ) as Promise<STTEnabledResult>,
   // TTS 相关的 API
   listTTSProviders: () =>
     ipcRenderer.invoke('tts:list-providers') as Promise<TTSProviderItem[]>,
@@ -167,6 +175,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       providerKey,
       values
     ) as Promise<TTSSaveResult>,
+  setTTSEnabled: (providerKey: string, enabled: boolean) =>
+    ipcRenderer.invoke(
+      'tts:set-enabled',
+      providerKey,
+      enabled
+    ) as Promise<TTSEnabledResult>,
   getTTSVoiceCloneForm: (providerKey: string) =>
     ipcRenderer.invoke('tts:get-voice-clone-form', providerKey),
   createTTSVoiceClone: (providerKey: string, values: Record<string, unknown>) =>

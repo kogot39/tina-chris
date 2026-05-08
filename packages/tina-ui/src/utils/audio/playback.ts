@@ -3,18 +3,25 @@
 // Sample rate of audio from ElevenLabs (pcm_24000 format)
 const SAMPLE_RATE = 24000
 
+export interface AudioPlaybackOptions {
+  onEnd?: () => void
+}
+
 export interface AudioPlayback {
   push: (pcmBase64: string) => void
   stop: () => void
   resetScheduling: () => void
 }
 
-export function createAudioPlayback(): AudioPlayback {
+export function createAudioPlayback(
+  options: AudioPlaybackOptions = {}
+): AudioPlayback {
   let audioContext: AudioContext | null = null
   let nextPlayTime = 0
   let sourceQueue: AudioBufferSourceNode[] = []
   let base64Queue: string[] = []
   let isProcessing = false
+  const { onEnd } = options
 
   function ensureContext(): AudioContext {
     if (!audioContext) {
@@ -67,6 +74,9 @@ export function createAudioPlayback(): AudioPlayback {
     const index = sourceQueue.indexOf(source)
     if (index > -1) {
       sourceQueue.splice(index, 1)
+    }
+    if (sourceQueue.length === 0 && base64Queue.length === 0) {
+      onEnd?.()
     }
   }
 

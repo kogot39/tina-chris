@@ -211,6 +211,22 @@ export class Config {
     mergeByShape(nextConfig, configData)
   }
 
+  updateProviderConfig(
+    type: 'stt' | 'tts',
+    providerKey: string,
+    configData: Record<string, any>
+  ) {
+    const configGroup = this[type] as unknown as PlainObject
+    const providerConfig = configGroup[providerKey]
+    if (!isPlainObject(providerConfig)) {
+      return
+    }
+
+    // STT/TTS 是可选能力，保存表单只代表“更新这个 provider 的参数”。
+    // 是否启用由 current 单独表达，避免用户只是补配置时就意外打开语音能力。
+    mergeByShape(providerConfig, configData)
+  }
+
   updateChannelConfig(channelKey: string, configData: Record<string, any>) {
     const channelGroup = (this.channels as unknown as PlainObject)[channelKey]
     if (!isPlainObject(channelGroup)) {

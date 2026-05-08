@@ -51,8 +51,6 @@ export type AddToolResultMessageInput = {
   timestamp: number
 }
 
-const STREAM_END_CONTENT = 'END'
-
 const appendText = (current: string, next: string): string => {
   if (!current) {
     return next
@@ -115,11 +113,9 @@ export function useMessage(initialMessages: InitialMessage[] = []) {
   ) => {
     const current = messages.value
     const targetIndex = current.findIndex((item) => item.id === input.id)
-    // 兼容旧的流式结束约定：content='END' 只更新状态，不把 END 当正文追加。
-    // 新 bus metadata 也会传 complete 状态，但保留这里可以让 hook 独立工作。
-    const isStreamEnd = input.content === STREAM_END_CONTENT
-    const status = isStreamEnd ? 'complete' : (input.status ?? 'complete')
-    const content = isStreamEnd ? '' : input.content
+    // 新 bus metadata 会传 complete 状态
+    const status = input.status ?? 'complete'
+    const content = input.content
 
     if (targetIndex >= 0) {
       const target = current[targetIndex]
@@ -131,7 +127,11 @@ export function useMessage(initialMessages: InitialMessage[] = []) {
 
       const nextMessage = {
         ...target,
-        content: appendText(target.content, content),
+        // 实时语音需要全量覆盖 content
+        content:
+          type === 'speech_text'
+            ? content
+            : appendText(target.content, content),
         status,
         timestamp: input.timestamp,
       } as TMessage

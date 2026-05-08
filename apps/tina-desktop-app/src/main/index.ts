@@ -718,7 +718,7 @@ function createWindow(): void {
 
   // 获取可用的语音识别提供商列表
   ipcMain.handle('stt:list-providers', async () => {
-    return getAvailableSTTs()
+    return getAvailableSTTs(runtimeConfig)
   })
   // 获取当前选定的语音识别提供商
   ipcMain.handle('stt:get-current-provider', async () => {
@@ -749,10 +749,12 @@ function createWindow(): void {
       if (!schema) {
         throw new Error(`Unsupported STT provider: ${providerKey}`)
       }
-      // 将新的配置项值更新到运行时配置中，并持久化保存
-      runtimeConfig.updateConfig('stt', providerKey, values)
+      // 保存 STT 表单只更新该 provider 的参数，不切换 current。
+      // 语音识别是可选模块，是否启用由卡片 switch 的 stt:set-enabled 单独决定。
+      runtimeConfig.updateProviderConfig('stt', providerKey, values)
       saveConfig(runtimeConfig)
-      // 这里的更新策略是将当前的所有会话关闭，下次接收到音频消息时会根据新的配置重新实例化 STT 供应平台实例，以确保新配置生效
+      // 如果当前 provider 已启用，关闭现有会话后下一次录音会按新配置重新创建实例；
+      // 如果未启用，这里只是清理可能残留的运行时连接，不会自动打开 STT。
       await sttManager.shutdown()
 
       // 返回更新后的当前配置项值，前端可以根据这个返回值来更新显示
@@ -761,12 +763,39 @@ function createWindow(): void {
       }
     }
   )
+  // STT 卡片 switch 只修改 current。开启不校验 apiKey/language 等业务配置，
+  // 这些错误留到真正录音创建 provider 时由 STTManager 抛出并反馈给用户。
+  ipcMain.handle(
+    'stt:set-enabled',
+    async (_event, providerKey: string, enabled: boolean) => {
+      const schema = getSTTConfigFormByKey(providerKey)
+      if (!schema) {
+        throw new Error(`Unsupported STT provider: ${providerKey}`)
+      }
+
+      if (enabled) {
+        runtimeConfig.stt.current =
+          providerKey as typeof runtimeConfig.stt.current
+      } else if (runtimeConfig.stt.current === providerKey) {
+        runtimeConfig.stt.current = ''
+      }
+
+      saveConfig(runtimeConfig)
+      await sttManager.shutdown()
+
+      return {
+        providerKey,
+        current: runtimeConfig.stt.current || '',
+        enabled: runtimeConfig.stt.current === providerKey,
+      }
+    }
+  )
 
   // TTS 相关的 IPC 处理器，基本和 STT 的处理器类似
 
   // 获取可用的文本转语音提供商列表
   ipcMain.handle('tts:list-providers', async () => {
-    return getAvailableTTSs()
+    return getAvailableTTSs(runtimeConfig)
   })
   // 获取当前选定的文本转语音提供商
   ipcMain.handle('tts:get-current-provider', async () => {
@@ -796,13 +825,41 @@ function createWindow(): void {
       if (!schema) {
         throw new Error(`Unsupported TTS provider: ${providerKey}`)
       }
-      // 将新的配置项值更新到运行时配置中，并持久化保存
-      runtimeConfig.updateConfig('tts', providerKey, values)
+      // 保存 TTS 表单只更新该 provider 的参数，不切换 current。
+      // 语音合成是否参与 Agent 回复由卡片 switch 单独控制。
+      runtimeConfig.updateProviderConfig('tts', providerKey, values)
       saveConfig(runtimeConfig)
       await ttsManager.shutdown()
 
       return {
         current: runtimeConfig.tts.current || '',
+      }
+    }
+  )
+  // TTS 与 STT 一样用 current 表示唯一启用 provider；空字符串即关闭模块。
+  // switch 本身不做 voice/apiKey 等配置校验，避免“先保存配置再启用”的流程被表单规则卡住。
+  ipcMain.handle(
+    'tts:set-enabled',
+    async (_event, providerKey: string, enabled: boolean) => {
+      const schema = getTTSConfigFormByKey(providerKey)
+      if (!schema) {
+        throw new Error(`Unsupported TTS provider: ${providerKey}`)
+      }
+
+      if (enabled) {
+        runtimeConfig.tts.current =
+          providerKey as typeof runtimeConfig.tts.current
+      } else if (runtimeConfig.tts.current === providerKey) {
+        runtimeConfig.tts.current = ''
+      }
+
+      saveConfig(runtimeConfig)
+      await ttsManager.shutdown()
+
+      return {
+        providerKey,
+        current: runtimeConfig.tts.current || '',
+        enabled: runtimeConfig.tts.current === providerKey,
       }
     }
   )

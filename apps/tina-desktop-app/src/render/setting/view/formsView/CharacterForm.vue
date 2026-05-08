@@ -44,7 +44,7 @@
         v-model="agentForm.workspace"
         name="workspace"
         label="工作目录"
-        hint="保存记忆、skills、提示词等数据目录"
+        hint="保存记忆、skills、提示词等数据目录，同时也作为专属工作区"
         placeholder="~/my-agent-workspace"
         required
       />

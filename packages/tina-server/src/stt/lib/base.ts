@@ -3,7 +3,10 @@ import type { DynamicFormSchema } from '@tina-chris/tina-ui'
 // 基础 stt 抽象类定义，后续只需要实现这个抽象类就可以适配新的 stt 模型了
 export type STTConfigFormSchema = DynamicFormSchema
 
-export type STTTranscriptHandler = (transcript: string) => void
+export type STTTranscriptHandler = (
+  transcript: string,
+  status: 'complete' | 'streaming'
+) => void
 export type STTErrorHandler = (error: Error) => void
 
 export abstract class BaseSTT {

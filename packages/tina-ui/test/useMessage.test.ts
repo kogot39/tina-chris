@@ -36,13 +36,8 @@ describe('useMessage', () => {
     expect(messages.value[0].status).toBe('complete')
   })
 
-  it('appends streaming content by id for text message types', () => {
-    const {
-      messages,
-      addAssistantMessage,
-      addReasoningMessage,
-      addSpeechTextMessage,
-    } = useMessage()
+  it('appends streaming content by id for generated text message types', () => {
+    const { messages, addAssistantMessage, addReasoningMessage } = useMessage()
 
     addAssistantMessage({
       id: 'assistant',
@@ -63,8 +58,6 @@ describe('useMessage', () => {
     })
     addReasoningMessage({ id: 'reasoning', content: 'step ', timestamp: 3 })
     addReasoningMessage({ id: 'reasoning', content: 'one', timestamp: 4 })
-    addSpeechTextMessage({ id: 'speech-in', content: 'voice ', timestamp: 5 })
-    addSpeechTextMessage({ id: 'speech-in', content: 'input', timestamp: 6 })
 
     expect(
       messages.value.find((item) => item.id === 'assistant')?.content
@@ -78,9 +71,35 @@ describe('useMessage', () => {
     expect(
       messages.value.find((item) => item.id === 'reasoning')?.content
     ).toBe('step one')
+  })
+
+  it('replaces speech text preview content by id', () => {
+    const { messages, addSpeechTextMessage } = useMessage()
+
+    addSpeechTextMessage({
+      id: 'speech-in',
+      content: 'voice',
+      status: 'streaming',
+      timestamp: 5,
+    })
+    // STT streaming preview 是“当前完整识别文本”，不是增量 token；
+    // 同一个 id 后续到达时要覆盖旧预览，避免重复拼接。
+    addSpeechTextMessage({
+      id: 'speech-in',
+      content: 'voice input',
+      status: 'complete',
+      timestamp: 6,
+    })
+
     expect(
       messages.value.find((item) => item.id === 'speech-in')?.content
     ).toBe('voice input')
+    expect(messages.value.find((item) => item.id === 'speech-in')?.status).toBe(
+      'complete'
+    )
+    expect(
+      messages.value.find((item) => item.id === 'speech-in')?.timestamp
+    ).toBe(6)
   })
 
   it('prepends historical messages without duplicating existing streaming ids', () => {

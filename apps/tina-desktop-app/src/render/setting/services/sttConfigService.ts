@@ -24,3 +24,7 @@ export const saveSTTConfig = (
 ) => {
   return window.electronAPI.saveSTTConfig(providerKey, values)
 }
+
+export const setSTTEnabled = (providerKey: string, enabled: boolean) => {
+  return window.electronAPI.setSTTEnabled(providerKey, enabled)
+}
