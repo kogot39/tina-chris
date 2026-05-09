@@ -202,7 +202,6 @@ export class AgentLoop {
         sessionManager: new SessionManager(workspacePath),
         contextBuilder: new ContextBuilder(workspacePath, memoryStore, skills),
         toolRegistry: createDefaultToolRegistry({
-          config: this.config,
           workspacePath,
           bus: this.bus,
           memoryStore,

@@ -38,17 +38,12 @@ import {
   getAvailableLLMs,
   getAvailableSTTs,
   getAvailableTTSs,
-  getAvailableToolProviders,
-  getAvailableToolTypes,
   getChannelConfigFormByKey,
   getLLMConfigFormByKey,
   getSTTConfigFormByKey,
   getTTSConfigFormByKey,
   getTTSVoiceCloneFormByKey,
-  getToolConfigFormByKey,
   isSupportedChannelProvider,
-  isSupportedToolProvider,
-  isSupportedToolType,
   listTTSVoiceClonesByKey,
   loadConfig,
   saveConfig,
@@ -172,30 +167,6 @@ const getChannelConfigByProvider = (
 // renderer 端将此对象视为固定表单的可编辑源
 const getAgentConfig = () => {
   return cloneSerializable(runtimeConfig.agent)
-}
-
-// 从配置中获取指定工具的指定工具类型的提供商的配置项值
-const getToolConfigByProvider = (
-  toolType: string,
-  providerKey: string
-): Record<string, unknown> | null => {
-  const toolsGroup = toPlainObject(runtimeConfig.tools)
-  if (!toolsGroup) return null
-
-  const toolGroup = toPlainObject(toolsGroup[toolType])
-  if (!toolGroup) return null
-
-  const providerConfig = toPlainObject(toolGroup[providerKey])
-  if (!providerConfig) return null
-
-  return Object.fromEntries(Object.entries(providerConfig))
-}
-// 从配置中获取指定工具类型的当前提供商
-const getCurrentToolProvider = (toolType: string): string => {
-  const toolsGroup = toPlainObject(runtimeConfig.tools)
-  const toolGroup = toolsGroup ? toPlainObject(toolsGroup[toolType]) : undefined
-  const current = toolGroup?.current
-  return typeof current === 'string' ? current : ''
 }
 
 const EMPTY_SESSION_MESSAGES_PAGE: SessionMessagesPage = {
@@ -546,79 +517,6 @@ function createWindow(): void {
     await ttsManager.abortSession(channel, chatId)
     return aborted
   })
-
-  // Tool 相关的 IPC 处理器
-
-  // 获取可用的工具类型列表，供前端展示和选择
-  ipcMain.handle('tool:list-types', async () => {
-    return getAvailableToolTypes()
-  })
-  // 获取指定工具类型的可用提供商列表，供前端展示和选择
-  ipcMain.handle('tool:list-providers', async (_event, toolType: string) => {
-    if (!isSupportedToolType(toolType)) {
-      throw new Error(`Unsupported tool type: ${toolType}`)
-    }
-
-    return getAvailableToolProviders(toolType)
-  })
-  // 获取指定工具类型的当前提供商，供前端展示当前使用的工具提供商
-  ipcMain.handle(
-    'tool:get-current-provider',
-    async (_event, toolType: string) => {
-      if (!isSupportedToolType(toolType)) {
-        throw new Error(`Unsupported tool type: ${toolType}`)
-      }
-
-      return getCurrentToolProvider(toolType)
-    }
-  )
-  // 获取指定工具类型和提供商的配置表单结构，供前端动态生成配置界面
-  ipcMain.handle(
-    'tool:get-config-form',
-    async (_event, toolType: string, providerKey: string) => {
-      const schema = getToolConfigFormByKey(toolType, providerKey)
-      if (!schema) {
-        throw new Error(`Unsupported tool provider: ${toolType}/${providerKey}`)
-      }
-
-      return schema
-    }
-  )
-  // 获取指定工具类型和提供商的当前配置项值，供前端在配置界面中显示当前配置值
-  ipcMain.handle(
-    'tool:get-current-config',
-    async (_event, toolType: string, providerKey: string) => {
-      if (!isSupportedToolProvider(toolType, providerKey)) {
-        throw new Error(`Unsupported tool provider: ${toolType}/${providerKey}`)
-      }
-
-      return getToolConfigByProvider(toolType, providerKey)
-    }
-  )
-  // 保存指定工具类型和提供商的配置项值，并应用新的配置
-  ipcMain.handle(
-    'tool:save-config',
-    async (
-      _event,
-      toolType: string,
-      providerKey: string,
-      values: Record<string, unknown>
-    ) => {
-      // 检查工具类型和提供商是否合法，确保前端传入的参数有效且受支持
-      if (!isSupportedToolProvider(toolType, providerKey)) {
-        throw new Error(`Unsupported tool provider: ${toolType}/${providerKey}`)
-      }
-      // 将新的配置项值更新到运行时配置中，并持久化保存
-      runtimeConfig.updateToolConfig(toolType, providerKey, values)
-      saveConfig(runtimeConfig)
-      // 工具配置可能会影响 AgentLoop 的行为，保存配置后立即重新初始化 AgentLoop，让新的工具配置重新注册。
-      agentLoop.initialize()
-
-      return {
-        current: getCurrentToolProvider(toolType),
-      }
-    }
-  )
 
   // 聊天通道相关的 IPC 处理器
 

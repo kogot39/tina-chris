@@ -22,9 +22,6 @@ import type {
   TTSProviderItem,
   TTSSaveResult,
   TTSVoiceCloneItem,
-  ToolProviderItem,
-  ToolSaveResult,
-  ToolTypeItem,
 } from '../shared'
 
 declare module '*.vue' {
@@ -125,22 +122,6 @@ declare global {
       providerKey: string,
       values: Record<string, unknown>
     ) => Promise<LLMSaveResult>
-    listToolTypes: () => Promise<ToolTypeItem[]>
-    listToolProviders: (toolType: string) => Promise<ToolProviderItem[]>
-    getCurrentToolProvider: (toolType: string) => Promise<string>
-    getToolConfigForm: (
-      toolType: string,
-      providerKey: string
-    ) => Promise<DynamicFormSchema>
-    getCurrentToolConfig: (
-      toolType: string,
-      providerKey: string
-    ) => Promise<Record<string, unknown> | null>
-    saveToolConfig: (
-      toolType: string,
-      providerKey: string,
-      values: Record<string, unknown>
-    ) => Promise<ToolSaveResult>
     getAgentConfig: () => Promise<AgentConfigData>
     saveAgentConfig: (values: AgentConfigData) => Promise<AgentSaveResult>
   }

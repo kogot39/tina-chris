@@ -21,9 +21,6 @@ import type {
   TTSProviderItem,
   TTSSaveResult,
   TTSVoiceCloneItem,
-  ToolProviderItem,
-  ToolSaveResult,
-  ToolTypeItem,
 } from '../shared'
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -217,41 +214,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       providerKey,
       values
     ) as Promise<LLMSaveResult>,
-  // 工具相关的 API
-  listToolTypes: () =>
-    ipcRenderer.invoke('tool:list-types') as Promise<ToolTypeItem[]>,
-  listToolProviders: (toolType: string) =>
-    ipcRenderer.invoke('tool:list-providers', toolType) as Promise<
-      ToolProviderItem[]
-    >,
-  getCurrentToolProvider: (toolType: string) =>
-    ipcRenderer.invoke(
-      'tool:get-current-provider',
-      toolType
-    ) as Promise<string>,
-  getToolConfigForm: (toolType: string, providerKey: string) =>
-    ipcRenderer.invoke(
-      'tool:get-config-form',
-      toolType,
-      providerKey
-    ) as Promise<Record<string, unknown>>,
-  getCurrentToolConfig: (toolType: string, providerKey: string) =>
-    ipcRenderer.invoke(
-      'tool:get-current-config',
-      toolType,
-      providerKey
-    ) as Promise<Record<string, unknown> | null>,
-  saveToolConfig: (
-    toolType: string,
-    providerKey: string,
-    values: Record<string, unknown>
-  ) =>
-    ipcRenderer.invoke(
-      'tool:save-config',
-      toolType,
-      providerKey,
-      values
-    ) as Promise<ToolSaveResult>,
   // Agent 相关的 API
   getAgentConfig: () =>
     ipcRenderer.invoke('agent:get-config') as Promise<AgentConfigData>,

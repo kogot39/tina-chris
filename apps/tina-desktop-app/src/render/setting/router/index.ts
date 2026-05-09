@@ -7,9 +7,6 @@ import STTConfigForm from '../view/formsView/STTConfigForm.vue'
 import STTProviderCards from '../view/cardsView/STTProviderCards.vue'
 import TTSConfigForm from '../view/formsView/TTSConfigForm.vue'
 import TTSProviderCards from '../view/cardsView/TTSProviderCards.vue'
-import ToolTypeCards from '../view/cardsView/ToolTypeCards.vue'
-import ToolProviderCards from '../view/cardsView/ToolProviderCards.vue'
-import ToolConfigForm from '../view/formsView/ToolConfigForm.vue'
 import ChannelProviderCards from '../view/cardsView/ChannelProviderCards.vue'
 import ChannelConfigForm from '../view/formsView/ChannelConfigForm.vue'
 
@@ -53,44 +50,6 @@ const router = createRouter({
     {
       path: '/setting/character',
       redirect: '/setting/agent',
-    },
-    {
-      path: '/setting/tools',
-      name: 'setting-tools',
-      component: ToolTypeCards,
-      meta: {
-        title: '工具配置',
-        breadcrumbs: [
-          { title: '设置', path: '/setting' },
-          { title: '工具类型' },
-        ],
-      },
-    },
-    {
-      path: '/setting/tools/:toolType',
-      name: 'setting-tool-providers',
-      component: ToolProviderCards,
-      meta: {
-        title: '工具供应平台',
-        breadcrumbs: [
-          { title: '设置', path: '/setting' },
-          { title: '工具类型', path: '/setting/tools' },
-          { title: '供应平台' },
-        ],
-      },
-    },
-    {
-      path: '/setting/tools/:toolType/:providerKey',
-      name: 'setting-tool-config',
-      component: ToolConfigForm,
-      meta: {
-        title: '工具供应平台配置',
-        breadcrumbs: [
-          { title: '设置', path: '/setting' },
-          { title: '工具类型', path: '/setting/tools' },
-          { title: '供应平台' },
-        ],
-      },
     },
     {
       path: '/setting/channelprovider',

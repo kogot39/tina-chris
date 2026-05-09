@@ -15,9 +15,6 @@ type SkillMetadata = {
  * 这里不引入完整 YAML 解析器，而是延续当前项目“frontmatter 只解析扁平字段”的策略：
  * - name / description / always 直接作为一层字段读取
  * - metadata 作为一个 JSON 字符串保存更复杂的结构
- *
- * 示例：
- * metadata: {"always":true,"requires":{"env":["BOCHA_API_KEY"],"bins":["git"]}}
  */
 type SkillRuntimeMetadata = {
   always?: boolean

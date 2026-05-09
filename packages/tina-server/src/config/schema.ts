@@ -87,20 +87,6 @@ export class AgentConfig {
   soulPrompt: SoulPromptConfig = new SoulPromptConfig()
 }
 
-class BochaSearchConfig {
-  apiKey: string = ''
-  maxResults: number = 5
-}
-
-class WebSearchToolsConfig {
-  current: 'bocha' | '' = ''
-  bocha: BochaSearchConfig = new BochaSearchConfig()
-}
-
-class ToolsConfig {
-  webSearch: WebSearchToolsConfig = new WebSearchToolsConfig()
-}
-
 type PlainObject = Record<string, unknown>
 
 const isPlainObject = (value: unknown): value is PlainObject => {
@@ -140,7 +126,6 @@ export class Config {
   agent: AgentConfig = new AgentConfig()
   llm: LLMConfigs = new LLMConfigs()
   channels: ChannelConfigs = new ChannelConfigs()
-  tools: ToolsConfig = new ToolsConfig()
 
   getConfig(type: 'tts' | 'stt' | 'agent' | 'llm') {
     if (type === 'agent') {
@@ -175,20 +160,6 @@ export class Config {
       }
     }
     return result
-  }
-
-  getToolConfig(toolType: string) {
-    const toolGroup = (this.tools as unknown as PlainObject)[toolType]
-    if (!isPlainObject(toolGroup)) {
-      return undefined
-    }
-
-    const current = toolGroup.current
-    if (typeof current !== 'string' || current.length === 0) {
-      return undefined
-    }
-
-    return toolGroup[current]
   }
 
   updateConfig(
@@ -234,25 +205,6 @@ export class Config {
     }
 
     mergeByShape(channelGroup, configData)
-  }
-
-  updateToolConfig(
-    toolType: string,
-    newCurrent: string,
-    configData: Record<string, any>
-  ) {
-    const toolGroup = (this.tools as unknown as PlainObject)[toolType]
-    if (!isPlainObject(toolGroup)) {
-      return
-    }
-
-    const nextConfig = toolGroup[newCurrent]
-    if (!isPlainObject(nextConfig)) {
-      return
-    }
-
-    toolGroup.current = newCurrent
-    mergeByShape(nextConfig, configData)
   }
 
   static createConfig(configData: Record<string, any>): Config {
